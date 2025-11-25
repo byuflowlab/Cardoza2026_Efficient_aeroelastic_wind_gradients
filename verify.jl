@@ -45,12 +45,12 @@ nowstr = Dates.format(nowtime, df)
 
 fileending = ".png"
 
-turbfile = "./openfast_files/TurbSim.dat"
+turbfile = "./data/TurbSim.dat"
 
 
 
 ### Read in OpenFAST files
-ofpath = "./openfast_files/" 
+ofpath = "./data/" 
 inputfile = of.read_inputfile("sn5_input.fst", ofpath)
 inflowwind = of.read_inflowwind("sn5_inflowwind.dat", ofpath)
 # addriver = of.read_addriver("sn5_ADdriver.dvr", ofpath)
@@ -130,7 +130,7 @@ end
 
 if readflag
     println("Reading OpenFAST files...")
-    fullouts = readdlm("./openfast_files/sn5_input.out", skipstart=6)
+    fullouts = readdlm("./data/sn5_input.out", skipstart=6)
 
     names = fullouts[1,:]
 
@@ -181,14 +181,14 @@ assembly = of.make_assembly(edfile, bdfile, bdblade)
 
 ### Prep the ASD rotor and operating conditions 
 aftypes = Array{of.AirfoilInput}(undef, 8)
-aftypes[1] = of.read_airfoilinput("./openfast_files/Airfoils/Cylinder1.dat") 
-aftypes[2] = of.read_airfoilinput("./openfast_files/Airfoils/Cylinder2.dat") 
-aftypes[3] = of.read_airfoilinput("./openfast_files/Airfoils/DU40_A17.dat") 
-aftypes[4] = of.read_airfoilinput("./openfast_files/Airfoils/DU35_A17.dat") 
-aftypes[5] = of.read_airfoilinput("./openfast_files/Airfoils/DU30_A17.dat") 
-aftypes[6] = of.read_airfoilinput("./openfast_files/Airfoils/DU25_A17.dat") 
-aftypes[7] = of.read_airfoilinput("./openfast_files/Airfoils/DU21_A17.dat") 
-aftypes[8] = of.read_airfoilinput("./openfast_files/Airfoils/NACA64_A17.dat") 
+aftypes[1] = of.read_airfoilinput("./data/Airfoils/Cylinder1.dat") 
+aftypes[2] = of.read_airfoilinput("./data/Airfoils/Cylinder2.dat") 
+aftypes[3] = of.read_airfoilinput("./data/Airfoils/DU40_A17.dat") 
+aftypes[4] = of.read_airfoilinput("./data/Airfoils/DU35_A17.dat") 
+aftypes[5] = of.read_airfoilinput("./data/Airfoils/DU30_A17.dat") 
+aftypes[6] = of.read_airfoilinput("./data/Airfoils/DU25_A17.dat") 
+aftypes[7] = of.read_airfoilinput("./data/Airfoils/DU21_A17.dat") 
+aftypes[8] = of.read_airfoilinput("./data/Airfoils/NACA64_A17.dat") 
 
 # indices correspond to which airfoil is used at which station
 af_idx = Int.(adblade["BlAFID"])
