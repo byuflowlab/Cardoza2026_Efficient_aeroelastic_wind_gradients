@@ -215,7 +215,7 @@ f_cp_idxs = [1, 14, 22, 31, 36] #control point indices for thickness scaling fac
 nf_cp = length(f_cp_idxs)
 
 
-function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, nwind, chord_scale, twist_scale, thick_scale, tsr_scale, pitch_scale, individual_scale) 
+function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, nwind, chord_scale, twist_scale, thick_scale, tsr_scale, pitch_scale) 
     fit = (xx, yy) -> Akima(xx, yy, 1e-4)
 
     # x = x.*individual_scale #Scale the design variables by the individual scale. ->scaling turned off for derivative timing so we don't have to update the scaling parameters every time. 
@@ -338,8 +338,8 @@ function (obj::uo.ObjectiveFunction)(x; verbose::Bool=false)
         obj.scaling.twist_scale,
         obj.scaling.thick_scale,
         obj.scaling.tsr_scale,
-        obj.scaling.pitch_scale,
-        obj.scaling.individual_scale)
+        obj.scaling.pitch_scale)
+
 
 
     #### Calculate the aerodynamic parts of the problem
@@ -424,8 +424,8 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
         obj.scaling.twist_scale,
         obj.scaling.thick_scale,
         obj.scaling.tsr_scale,
-        obj.scaling.pitch_scale,
-        obj.scaling.individual_scale)
+        obj.scaling.pitch_scale)
+
 
 
     ##### Geometric constraints
@@ -592,7 +592,7 @@ tsr_naught = tsr0/tsr_scale
 
 
 x0 = vcat(chords0, twist0, f_segs0, pitches0, tsr_naught)
-x0 = x0./individual_scale #Scale the initial guess by the individual scale.
+x0 = x0 
 
 nx = length(x0)
 
@@ -618,8 +618,8 @@ ub_pitches = 30.0*pi/180*ones(nwind)./pitch_scale
 lb_tsr = 1.0/tsr_scale
 ub_tsr = 15.0/tsr_scale
 
-lx = vcat(lb_chord, lb_twist, lb_f_segs, lb_pitches, lb_tsr)./individual_scale
-ux = vcat(ub_chord, ub_twist, ub_f_segs, ub_pitches, ub_tsr)./individual_scale
+lx = vcat(lb_chord, lb_twist, lb_f_segs, lb_pitches, lb_tsr)
+ux = vcat(ub_chord, ub_twist, ub_f_segs, ub_pitches, ub_tsr)
 
 if length(lx) != length(ux) != nx
     @warn("Length of lower and upper bounds do not match the number of design variables.")

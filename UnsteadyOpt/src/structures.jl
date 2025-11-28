@@ -61,7 +61,67 @@ function extreme_loading_analysis!(g, clt_list, compliance, mass, fy, fz, points
     p_loads = vcat(fy, fz)
     p = vcat(p_compliance, p_mass, p_loads)
 
-    # @show typeof(p)
+    n_compliance = length(p_compliance)
+    n_mass = length(p_mass)
+    
+
+    np = length(points)
+    nelem = length(fy) 
+
+    pfunc = (pee, t) -> get_steady_parameters(
+        pee,
+        points,
+        1:nelem,
+        2:np,
+        xp,
+        n_compliance,
+        n_mass,
+        nelem) 
+        
+    assembly = pfunc(nondual_value.(p), 0.0).assembly #Get the assembly from the pfunc.
+
+
+    gravity = SVector(-gravity_value*cos(azimuth), -gravity_value*sin(azimuth), 0.0)
+     
+    prescribed_conditions = Dict(1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)) #Fixed first node. 
+
+    ### Run static analysis
+    _, state, converged = GXBeam.steady_state_analysis(assembly; prescribed_conditions, pfunc, p, gravity, iterations=100, ftol=1e-8) 
+    
+    #A flag to print something if the analysis didn't converge.
+    if !converged
+        println("Analysis did not converge.")
+    end
+    
+
+    ### Fill constraints  
+    for i in 1:nelem
+        fb, fs, _ = check_failure(state.elements[i].Fi, state.elements[i].Mi, clt_list[i], eps_ult)
+
+        b_idx, fs_idx = get_failure_constraint_indices(i, num_buckling, num_elements, N_buckling)
+
+        b_idx = b_idx .+ Nshift
+        fs_idx = fs_idx .+ Nshift
+
+        g[b_idx] = fb./buckling_scale #Buckling constraint
+        g[fs_idx] = fs/strain_scale #Strain constraint
+    end  
+
+    ### Deflection constraint
+    g[Nshift + N_buckling + N_elements + 1] = state.elements[end].u[3]/deflection_scale
+end
+
+
+
+
+function extreme_loading_analysis_oop(clt_list, compliance, mass, fy, fz, points, xp, azimuth, eps_ult, gravity_value)
+
+    ### Store information in the p vector for the adjoint
+    p_compliance = get_list_property(compliance)
+    p_mass = get_list_property(mass)
+    p_loads = vcat(fy, fz)
+    p = vcat(p_compliance, p_mass, p_loads)
+
 
     n_compliance = length(p_compliance)
     n_mass = length(p_mass)
@@ -80,11 +140,6 @@ function extreme_loading_analysis!(g, clt_list, compliance, mass, fy, fz, points
         n_mass,
         nelem) 
         
-    # if isa(p[1], ReverseDiff.TrackedReal) #TODO: Probably ought to put this in a function of some sort. 
-    #     assembly = pfunc(ReverseDiff.value.(p), 0.0).assembly
-    # else
-    #     assembly = pfunc(ForwardDiff.value.(p), 0.0).assembly #Get the assembly from the pfunc.
-    # end
     assembly = pfunc(nondual_value.(p), 0.0).assembly #Get the assembly from the pfunc.
 
 
@@ -92,37 +147,22 @@ function extreme_loading_analysis!(g, clt_list, compliance, mass, fy, fz, points
      
     prescribed_conditions = Dict(1 => PrescribedConditions(ux=0, uy=0, uz=0, theta_x=0, theta_y=0, theta_z=0)) #Fixed first node. 
 
-    # error("Stop here. ")
     ### Run static analysis
     _, state, converged = GXBeam.steady_state_analysis(assembly; prescribed_conditions, pfunc, p, gravity, iterations=100, ftol=1e-8) 
     
     #A flag to print something if the analysis didn't converge.
     if !converged
-        println("Analysis did not converge.")
+        println("Steady analysis did not converge.")
     end
     
-
-    ### Fill constraints  
-    for i in 1:nelem
-        # Fi, Mi = rotate_internal_loads(state.elements[i].Fi, state.elements[i].Mi, 0.0)
-        Fi = state.elements[i].Fi
-        Mi = state.elements[i].Mi
-        
-        fb, fs, _ = check_failure(Fi, Mi, clt_list[i], eps_ult)
-
-        b_idx, fs_idx = get_failure_constraint_indices(i, num_buckling, num_elements, N_buckling)
-
-        b_idx = b_idx .+ Nshift
-        fs_idx = fs_idx .+ Nshift
-        # @show b_idx, fs_idx
-
-        g[b_idx] = fb./buckling_scale #Buckling constraint
-        g[fs_idx] = fs/strain_scale #Strain constraint
-    end  
+    failure_tuples = [check_failure(state.elements[i].Fi, state.elements[i].Mi, clt_list[i], eps_ult) for i in 1:nelem]
+    buckling = mapreduce(identity, vcat, getindex.(failure_tuples, 1))
+    strain = mapreduce(identity, vcat, getindex.(failure_tuples, 2))
 
     ### Deflection constraint
-    g[Nshift + N_buckling + N_elements + 1] = state.elements[end].u[3]/deflection_scale
-    # @show Nshift + N_buckling + N_elements + 1
+    tip_deflection = state.elements[end].u[3]
+
+    return buckling, strain, tip_deflection
 end
 
 
@@ -160,10 +200,7 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
     p_mass = get_list_property(mass)
     
     if isa(chords[1], ReverseDiff.TrackedReal)
-        # @show typeof(chords)
-        p = get_vector_tracked_reals(p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch) #Hopefully this doesn't need to be a TrackedArray. 
-        # p = get_tracked_array(chords, p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch) #The first argurment is just to get the type.
-        # @show typeof(p)
+        p = get_vector_tracked_reals(p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch) 
     else
         p = vcat(p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch) #Original line.
     end
@@ -186,16 +223,7 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
         n_mass,
         nelem)
 
-    if isa(chords[1], ReverseDiff.TrackedReal)
-        # @show typeof(p), typeof(p[1])
-        # @show ReverseDiff.value(p[1])
-        # @show ReverseDiff.value.(p)
-        assembly = pfunc(ReverseDiff.value.(p), 0.0).assembly #Get the assembly from the pfunc.
-    else
-         assembly = pfunc(ForwardDiff.value.(p), 0.0).assembly #Get the assembly from the pfunc.
-    end
-    # assembly = pfunc(ForwardDiff.value.(p), 0.0).assembly #Get the assembly from the pfunc.
-    # @show typeof(assembly)
+    assembly = pfunc(nondual_value.(p), 0.0).assembly #Get the assembly from the pfunc.
 
     ufun(t) = SVector(Ufit(t), Vfit(t), Wfit(t))
     omegafun(t) = SVector(0.0, 0.0, 0.0)
@@ -208,13 +236,11 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
     env = WATT.SimpleEnvironment(rho, mu, a, shearExp, ufun, omegafun, udotfun, omegadotfun, Vinf, RS, Vinfdot, RSdot)
 
     rotor = WATT.Rotor(Int(B), hubHt, true; tilt, yaw)
-    # @show typeof(chords)
-    # @show typeof(twists)
     blade = WATT.Blade(rvec, chords, twists, xcp, airfoils; rhub=rhub, rtip=rtip, precone)
     
     aerostates, gxhistory, mesh = WATT.initialize_sim(blade, assembly, tvec; verbose=false, pfunc=pfunc, p=p)
 
-    function prepp!(p, Fx, Fy, mx) #Todo: I'm not sure that I have the load transforms correct here. What should be fed in here? should it be rotated here or is this assuming the rotated loads? 
+    function prepp!(p, Fx, Fy, mx) 
         loads = @views p[n_compliance+n_mass+1:n_compliance+n_mass+(2*nelem)]
         loads[1:nelem] .= Fy #fy
         loads[nelem+1:end] .= -Fx #fz
@@ -230,12 +256,9 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
     for i = 201:ntime
         g[tipdef_idxs[i-200]] = gxhistory[i].elements[end].u[3]/deflection_scale
     end
-    # @show tipdef_idxs
-
-
 
     ### Extract loads at the locations we want to check for damage.
-    forces = zeros(TF, length(fat_idxs), ntime, 3) #todo: instead of allocating this... I could probably just pass the gxhistory directly to the damage calculation function and extract the forces and moments there.
+    forces = zeros(TF, length(fat_idxs), ntime, 3)
     moments = zeros(TF, length(fat_idxs), ntime, 3)
     for i in eachindex(tvec)
         for j in eachindex(fat_idxs)
@@ -260,7 +283,85 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
         t_elapsed,
         nu,
         num_constraints,
-        Omega_rated,
         num_elements)
 end
 
+
+function fatigue_analysis_oop(clt_list, compliance, mass, chords, twists, Omega_rated, rated_pitch, points, xp, tvec, B, rvec, rhub, rtip, xcp, airfoils, hubHt, azimuth0, yaw, tilt, precone, Ufit, Vfit, Wfit, shearExp, rho, mu, a, eps_ult, m, gravity_value, fat_idxs, num_elements)
+
+    TF = typeof(chords[1])
+
+    p_compliance = get_list_property(compliance)
+    p_mass = get_list_property(mass)
+    
+    if isa(chords[1], ReverseDiff.TrackedReal)
+        p = get_vector_tracked_reals(p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch)
+    else
+        p = vcat(p_compliance, p_mass, chords, twists, Omega_rated, rated_pitch) #Original line.
+    end
+
+    n_compliance = length(p_compliance)
+    n_mass = length(p_mass)
+
+    np = length(points)
+    nelem = length(chords)
+
+    pfunc = (pee, tee) -> get_unsteady_parameters(
+        pee,
+        points,
+        1:nelem,
+        2:np,
+        xp,
+        azimuth0,
+        gravity_value,
+        n_compliance,
+        n_mass,
+        nelem)
+
+    assembly = pfunc(nondual_value.(p), 0.0).assembly #Get the assembly from the pfunc.
+
+
+    ufun(t) = SVector(Ufit(t), Vfit(t), Wfit(t))
+    omegafun(t) = SVector(0.0, 0.0, 0.0)
+    udotfun(t) = SVector(0.0, 0.0, 0.0)
+    omegadotfun(t) = SVector(0.0, 0.0, 0.0)
+    Vinf(t) = Ufit(t)
+    RS(t) = Omega_rated
+    Vinfdot(t) = 0.0
+    RSdot(t) = 0.0
+    env = WATT.SimpleEnvironment(rho, mu, a, shearExp, ufun, omegafun, udotfun, omegadotfun, Vinf, RS, Vinfdot, RSdot)
+
+    rotor = WATT.Rotor(Int(B), hubHt, true; tilt, yaw)
+    blade = WATT.Blade(rvec, chords, twists, xcp, airfoils; rhub=rhub, rtip=rtip, precone)
+    
+    aerostates, gxhistory, mesh = WATT.initialize_sim(blade, assembly, tvec; verbose=false, pfunc=pfunc, p=p)
+
+    function prepp!(p, Fx, Fy, mx) 
+        loads = @views p[n_compliance+n_mass+1:n_compliance+n_mass+(2*nelem)]
+        loads[1:nelem] .= Fy 
+        loads[nelem+1:end] .= -Fx
+    end
+
+    WATT.run_sim!(rotor, blade, mesh, env, tvec, aerostates, gxhistory; verbose=false, prepp=prepp!, p=p)
+
+    ntime = length(tvec)
+
+    tip_deflections = [gxhistory[i].elements[end].u[3] for i in 201:ntime]
+
+    ### Extract loads at the locations we want to check for damage.
+    forces = zeros(TF, length(fat_idxs), ntime, 3) 
+    moments = zeros(TF, length(fat_idxs), ntime, 3)
+    for i in eachindex(tvec)
+        for j in eachindex(fat_idxs)
+            forces[j, i, :] = gxhistory[i].elements[fat_idxs[j]].Fi
+            moments[j, i, :] = gxhistory[i].elements[fat_idxs[j]].Mi
+        end
+    end
+
+
+    t_elapsed = tvec[end]-tvec[1]
+
+    damages = calculate_damage_oop(fat_idxs, forces, moments, clt_list, eps_ult, m, t_elapsed, num_elements)
+
+    return tip_deflections, damages
+end

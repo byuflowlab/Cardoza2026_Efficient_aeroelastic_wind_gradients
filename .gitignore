@@ -26,4 +26,3 @@ figures/*
 *turbuni.dat
 *.xlsx
 *.sum.yaml
-*reverse.jl

@@ -1,7 +1,7 @@
 #=
-Sweep the number of sparse design variables (by changing the number of wind speeds)
+Time the reverse mode AD while varying the number of sparse design variables.
 
-Adam Cardoza 8/21/25
+Adam Cardoza 10/2/25
 =# 
 localpath = @__DIR__
 cd(localpath)
@@ -9,7 +9,7 @@ cd(localpath)
 using GXBeamCS, GXBeam, CCBlade, OpenFASTTools, DynamicStallModels
 using FLOWMath, DelimitedFiles, LinearAlgebra, Dates
 using StaticArrays, StructArrays, SparseArrays
-using ForwardDiff, FiniteDiff, DiffResults, PolyesterForwardDiff
+using ForwardDiff, FiniteDiff, DiffResults, PolyesterForwardDiff, ReverseDiff
 using SNOW, Snopt
 using Plots, LaTeXStrings
 using UnsteadyOpt
@@ -18,7 +18,7 @@ df = Dates.DateFormat("yymmdd_HH.MM.SS")
 now = Dates.now()
 nowstr = Dates.format(now, df)
 filename = splitpath(@__FILE__)[end]
-rootname = "_sparseDVsweep_"
+rootname = "_checkmemory_"
 
 
 println("running ", filename, " at ", nowstr)
@@ -34,9 +34,6 @@ yamlpath = "./data/5MW_PreComp_5seg"
 precomppath = "./data/5MW_PreComp_5seg"
 turbfile = "./data/TurbSim.dat"
 
-
-
-
 # problem constants
 rating = 5000.0 #Machine rating in kW (for cost model)
 B = 3 #Number of blades
@@ -51,6 +48,7 @@ tsr0 = 7.55 #Initial tip speed ratio
 pitch = 0.0 #parked pitch, radians
 
 power_rating = 5.0e6 #Watts
+max_thrust = 600e3 #Newtons
 Vrated = 11.4 #m/s
 Vinf = 10.0 #m/s
 V_extreme = 70.0 #m/s
@@ -68,7 +66,9 @@ gravity = 9.81 #gravitational acceleration, m/s^2
 azimuth0 = 0.0*pi/180 #initial azimuthal position, radians
 azimuth = 90.0*pi/180 #extreme azimuth, radians
 
-tvec = collect(0:0.05:100.0) #time vector, seconds (for fatigue analysis)
+# tvec = collect(0:0.05:100.0) #time vector, seconds (for fatigue analysis) #Used 355 GB of RAM, too much for local testing.
+@warn "Using shortened time vector for local testing."
+tvec = collect(0:0.05:15.0)
 ntime = length(tvec)
 ntimecon = ntime - 200 #Number of constraints in time (dynamic tip deflection)
 
@@ -87,13 +87,17 @@ Wfit = Akima(tvec_turb, turb[:, 6])
 env_data = (;Ufit, Vfit, Wfit)
 
 
-L = Rtip - Rhub #blade length
+L = Rtip - Rhub #Blade length
 distro, materials, stations = uo.get_precomp_descriptions(precomppath, yamlpath)
 
 
-m = 10.0 #Wholer exponent
-eps_ult = 0.01 #Ultimate strain for all materials (assumed)
-nu = 1.3 #fatigue failure safety factor
+m = 10.0 #Wholer exponent for fatigue
+eps_ult = 0.01 #ultimate strain
+nu = 1.3 #fatigue safety factor 
+gamma_f = 1.35 #safety factor
+gamma_m = 1.1 #safety factor
+minf = 0.5674 #minimum thickness factor
+
 nbearing = 2 #Number of bearings in the turbine
 
 rvec = distro.rvec #meters, radial location of an analysis node
@@ -102,20 +106,21 @@ twistvec = distro.twistvec #Radians, initial twist distribution
 le_loc = distro.le_loc #Location of reference axis as fraction of chord
 
 
+
 ### Create airfoil objects
 nr = length(rvec)
 
-airfoils = uo.get_interp_polars(rvec, airfoil_interp_path) #Interpolated polars (no dynamic coefficients)
+airfoils = uo.get_interp_polars(rvec, airfoil_interp_path)
 
 
-aftypes = Array{of.AirfoilInput}(undef, 8) #OpenFAST airfoils (have dynamic coefficients), but not interpolated to station
-aftypes[1] = of.read_airfoilinput(joinpath(airfoilpath, "Cylinder1.dat"))
-aftypes[2] = of.read_airfoilinput(joinpath(airfoilpath, "Cylinder2.dat"))
-aftypes[3] = of.read_airfoilinput(joinpath(airfoilpath, "DU40_A17.dat"))
-aftypes[4] = of.read_airfoilinput(joinpath(airfoilpath, "DU35_A17.dat"))
-aftypes[5] = of.read_airfoilinput(joinpath(airfoilpath, "DU30_A17.dat"))
-aftypes[6] = of.read_airfoilinput(joinpath(airfoilpath, "DU25_A17.dat"))
-aftypes[7] = of.read_airfoilinput(joinpath(airfoilpath, "DU21_A17.dat"))
+aftypes = Array{of.AirfoilInput}(undef, 8)
+aftypes[1] = of.read_airfoilinput(joinpath(airfoilpath, "Cylinder1.dat")) 
+aftypes[2] = of.read_airfoilinput(joinpath(airfoilpath, "Cylinder2.dat")) 
+aftypes[3] = of.read_airfoilinput(joinpath(airfoilpath, "DU40_A17.dat")) 
+aftypes[4] = of.read_airfoilinput(joinpath(airfoilpath, "DU35_A17.dat")) 
+aftypes[5] = of.read_airfoilinput(joinpath(airfoilpath, "DU30_A17.dat")) 
+aftypes[6] = of.read_airfoilinput(joinpath(airfoilpath, "DU25_A17.dat")) 
+aftypes[7] = of.read_airfoilinput(joinpath(airfoilpath, "DU21_A17.dat")) 
 aftypes[8] = of.read_airfoilinput(joinpath(airfoilpath, "NACA64_A17.dat"))
 
 
@@ -127,6 +132,8 @@ af_idx = of.integerfit(raf, afidx, rvec)
 
 afs = aftypes[af_idx]
 
+
+# dsairfoils = Vector{DS.Airfoil}(undef, nr) #Note: Apparently this can't display
 dsairfoils = StructArray{DS.Airfoil}(undef, nr)
 xcp = Vector{Float64}(undef, nr)
 for i = 1:nr
@@ -148,6 +155,7 @@ end
 rotor = Rotor(Rhub, Rtip, B, precone=precone, turbine=true)
 
 
+
 ### discretize the beam
 pts = zeros(length(rvec)+1)
 pts[1] = Rhub
@@ -162,11 +170,17 @@ xp = [[rvec[i], 0., 0.0] for i in 1:length(rvec)]
 nelem = length(points) - 1
 start = 1:nelem
 stop = 2:nelem+1
+
+ 
+
+
+
+
 assembly = Assembly(points, start, stop; midpoints=xp)
 
 
-
-### scaling factors for optimization
+# println("Functions scaling: ", string(Dates.now()))
+### scaling factors
 chord_scale = 1e1
 twist_scale = 1e-1
 thick_scale = 1e2
@@ -175,12 +189,13 @@ tsr_scale = 1e2
 
 
 power_scale = 1e7
-thrust_scale = 600e3 #600 kN max thrust constraint. 
 deflection_scale = 1e1
 bending_scale = 2e7
 buckling_scale = 1e4 #basically no change from 1e2 to 1e4...
 strain_scale = 1e0
 obj_scale = 1e2
+
+
 
 
 num_elements = Int.(uo.num_elements5/2)
@@ -211,14 +226,18 @@ ntwist = nr - twist_cp_idxs[1] #Number of indices that we're controlling the twi
 cyl_idxs = 1:twist_cp_idxs[1] #Indices of the cylindrical section
 twist_idxs = twist_cp_idxs[1]:twist_cp_idxs[end] #Indices of the twist section
 
-f_cp_idxs = [1, 14, 22, 31, 36] #control point indices for thickness scaling factors
+
+
+f_cp_idxs = [1, 14, 22, 31, 36]
+
 nf_cp = length(f_cp_idxs)
 
 
 function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, nwind, chord_scale, twist_scale, thick_scale, tsr_scale, pitch_scale) 
-    fit = (xx, yy) -> Akima(xx, yy, 1e-4)
 
-    # x = x.*individual_scale #Scale the design variables by the individual scale. ->scaling turned off for derivative timing so we don't have to update the scaling parameters every time. 
+    fit = (xx, yy) -> Akima(xx, yy, 1e-2)
+
+    # x = x.*individual_scale #Scale the design variables by the individual scale. ->scaling turned off for derivative timing so we don't have to update the scaling parameters every time.
 
     ## Chords
     r_cp_chord = rvec[cp_idxs[1:end]] #Control point radii
@@ -226,7 +245,8 @@ function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_id
     x_chord = x[chord_idxs].*chord_scale
     chord_cp = vcat(cvec[cp_idxs[1]], x_chord) #Control point chords
     cfit = fit(r_cp_chord, chord_cp) 
-    chords = cfit.(rvec)
+    chords = cfit.(rvec) + zero(x[1:36])
+ 
 
     ## Twist
     start_idx = chord_idxs[end]
@@ -237,6 +257,7 @@ function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_id
     cylinder_twists = twistvec[1:twist_cp_idxs[1]-1]
     blade_twists = twistfit.(rvec[twist_cp_idxs[1]:end])
     twists = vcat(cylinder_twists, blade_twists)
+
 
     for ti in x_twist 
         if ti >= pi/4
@@ -289,35 +310,35 @@ function get_designvars(x, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_id
     pitches = x[pitches_idxs].*pitch_scale
 
     pitch0 = pitches[1]
-    pitches = pitches .- pitch0 #Shift all the pitches by the first pitch.
-    twists = twists .+ pitch0 #Shift all the twists by the first pitch.
+    pitches = pitches .- pitch0 #Shift all the pitches by the first pitch. 
+    twists = twists .+ pitch0 #Shift all the twists by the first pitch. 
 
     start_idx = pitches_idxs[end]
     tsr_idxs = start_idx+1
     tsr = x[tsr_idxs]*tsr_scale
-    
+
     return chords, twists, fvec, pitches, tsr
 end
 
 
 
 
-aero = (; rotor, airfoils, dsairfoils, xcp, B, Rhub, Rtip, pitch, precone, yaw, tilt, azimuth0, azimuth, hubHt, shearExp, rho, mu, a, power_rating, Vrated, Vinf, Vin, Vout, V_extreme, Vmean, Vcurve, tsr0, env_data, nr, rotorR, nwind, rating, Vtip)
+aero = (; rotor, airfoils, dsairfoils, xcp, B, Rhub, Rtip, pitch, precone, yaw, tilt, azimuth0, azimuth, hubHt, shearExp, rho, mu, a, power_rating, max_thrust, Vrated, Vinf, Vin, Vout, V_extreme, Vmean, Vcurve, tsr0, env_data, nr, rotorR, nwind, rating, Vtip)
 
 structural = (; xp, nelem, start, stop, points, tvec, gravity, nbearing)
 
-composites = (; m, eps_ult, nu, materials, stations)
+composites = (; m, eps_ult, nu, gamma_f, gamma_m, minf, materials, stations)
 
 idxs = (; fat_idxs, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, num_elements, num_buckling, N_elements, N_buckling, N_bulk_full, num_segments, Nsegs, Nfat, ntime, ntwist, cyl_idxs, twist_idxs, ntimecon)
 
-scaling = (; chord_scale, thick_scale, twist_scale, power_scale, thrust_scale, deflection_scale, bending_scale, obj_scale, buckling_scale, strain_scale, pitch_scale, tsr_scale)
+scaling = (; chord_scale, thick_scale, twist_scale, power_scale, deflection_scale, bending_scale, obj_scale, buckling_scale, strain_scale, pitch_scale, tsr_scale)
 
 objective = uo.ObjectiveFunction(distro, assembly, aero, structural, composites, idxs, scaling);
 constraint = uo.ConstraintFunction(distro, assembly, aero, structural, composites, idxs, scaling);
 
 
 
-function (obj::uo.ObjectiveFunction)(x; verbose::Bool=false) 
+function (obj::uo.ObjectiveFunction)(x; verbose::Bool=false, showfig::Bool=false) 
 
     TF = typeof(x[1])
 
@@ -341,6 +362,7 @@ function (obj::uo.ObjectiveFunction)(x; verbose::Bool=false)
         obj.scaling.pitch_scale)
 
 
+    # println("Finished reading design variables.")
     #### Calculate the aerodynamic parts of the problem
     sections = CCBlade.Sections(obj.distro.rvec, chords, twists, obj.aero.airfoils)
     
@@ -358,48 +380,47 @@ function (obj::uo.ObjectiveFunction)(x; verbose::Bool=false)
         obj.aero.shearExp, 
         obj.aero.rho,
         obj.aero.Vmean,
-        TF) #searched for branching. 
-
+        TF)
 
     ## Scale the layer thickness of the different sectors
     materials_i = GXBeamCS.Material{TF}.(obj.composites.materials) # Make appropriate materials vector. 
-    segs_webs = uo.scale_segments(obj.composites.stations, fvec, materials_i, obj.idxs.num_segments) 
+    segs_webs = uo.scale_segments(obj.composites.stations, fvec, materials_i, obj.idxs.num_segments)
 
-    
     ### Get the cross sectional properties. 
     clt_sections = [uo.get_clt_sections_oop(
-        obj.composites.stations[i].xaf,
-        obj.composites.stations[i].yaf,
-        chords[i],
-        twists[i],
-        obj.distro.le_loc[i],
-        obj.composites.stations[i].xbreak,
-        obj.composites.stations[i].webloc,
-        segs_webs[i].segments,
+        obj.composites.stations[i].xaf, 
+        obj.composites.stations[i].yaf, 
+        chords[i], 
+        twists[i], 
+        obj.distro.le_loc[i], 
+        obj.composites.stations[i].xbreak, 
+        obj.composites.stations[i].webloc, 
+        segs_webs[i].segments, 
         segs_webs[i].webs
     ) for i in 1:obj.aero.nr]
 
-    
     mass_list = [GXBeamCS.mass_matrix(clt_sections[i]; reference=[chords[i]*obj.distro.le_loc[i], 0.0, twists[i]])[1] for i in eachindex(clt_sections)]
 
     ### Compute mass
-    blade_mass = uo.compute_blade_mass(mass_list, obj.assembly.elements, TF) 
+    blade_mass = uo.compute_blade_mass(mass_list, obj.assembly.elements, TF)
+    
 
     Q_rotor = uo.estimate_rotor_torque(obj.aero.rating, obj.aero.Rtip*2, tsr*obj.aero.Vinf) 
-    
-    tcc = uo.calc_turbine_cost(obj.aero.rating, obj.aero.Rtip*2, Q_rotor, obj.aero.B, blade_mass, obj.structural.nbearing, obj.aero.hubHt)
+
+    tcc = uo.calc_turbine_cost(obj.aero.rating, obj.aero.Rtip*2, Q_rotor, obj.aero.B, blade_mass, obj.structural.nbearing, obj.aero.hubHt) #total capital cost
 
     bos = 2979e3 #Balance of Station cost (WISDEM NREL 5MW example file)
     opex = 144e3 #Annual O&M cost (WISDEM NREL 5MW example file)
-    tr = 0.4 #Wisdem CSM default tax rate
+    tr = 0.4 #Wisdem CSM default tax rate... 
     coe = uo.cost_of_energy(AEP/1e3, bos, tcc, opex; tax_rate=tr) #Convert the AEP from Wh to kWh
 
-    if verbose
+    if showfig
         @show AEP, blade_mass, coe
     end
 
     return obj.scaling.obj_scale*coe
 end
+
 function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false) 
 
     TF = typeof(x[1])
@@ -423,18 +444,16 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
         obj.scaling.tsr_scale,
         obj.scaling.pitch_scale)
 
-
     ##### Geometric constraints
     ### Twist monotonicity constraint
     ntwist = obj.idxs.ntwist 
     twist_con_idxs = 1:ntwist #Indices of the twist constraints
-    g[twist_con_idxs] = diff(twists[obj.idxs.twist_idxs]) 
-
+    g[twist_con_idxs] = diff(twists[obj.idxs.twist_idxs]) #Checked for CA
 
     ### fvec constraint
     current_idx = twist_con_idxs[end]
     idx_fvec = current_idx+1:current_idx+length(fvec)
-    g[idx_fvec] = fvec 
+    g[idx_fvec] = fvec .- obj.composites.minf #Checked for CA
 
 
     #### Calculate the aerodynamic parts of the problem
@@ -458,28 +477,35 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
 
     ### Power constraints
     current_idx = idx_fvec[end] 
-    power_idx = current_idx+1:current_idx+obj.aero.nwind 
-    g[power_idx] = powercurve./obj.scaling.power_scale 
+    power_idx1 = current_idx+1:current_idx+obj.aero.nwind 
+    g[power_idx1] = -powercurve./obj.aero.power_rating #Greater than zero constraint 
+
+    current_idx = power_idx1[end] 
+    power_idx2 = current_idx+1:current_idx+obj.aero.nwind
+    g[power_idx2] = powercurve./obj.aero.power_rating .- 1.0 #max power constraint. 
+
 
     ### Thrust constraints
-    current_idx = power_idx[end]
+    current_idx = power_idx2[end]
     thrust_idx = current_idx+1:current_idx+obj.aero.nwind
-    g[thrust_idx] = thrustcurve./obj.scaling.thrust_scale
+    g[thrust_idx] = thrustcurve./obj.aero.max_thrust .- 1.0 #max thrust constraint.
 
 
     ### pitches constraint
     current_idx_ = thrust_idx[end]
-    idx_pitches = current_idx_+1:current_idx_+nwind-1
-    g[idx_pitches] = diff(pitches)
+    idx_pitches = current_idx_+1:current_idx_+obj.aero.nwind-1
+    g[idx_pitches] = -diff(pitches)
     
 
     ## Scale the layer thickness of the different sectors
     materials_i = GXBeamCS.Material{TF}.(obj.composites.materials) # Make appropriate materials vector. 
-    segs_webs = uo.scale_segments(obj.composites.stations, fvec, materials_i, obj.idxs.num_segments) 
+    segs_webs = uo.scale_segments(obj.composites.stations, fvec, materials_i, obj.idxs.num_segments) #TODO: Create new function to not scale fw1 and fw1
 
     
     ### Get the cross sectional properties. 
-    clt_list = [uo.get_clt(
+    closed_section = true
+
+    clt_list = [GXBeamCS.CLT(GXBeamCS.get_beam_sections_oop(
         obj.composites.stations[i].xaf, 
         obj.composites.stations[i].yaf, 
         chords[i], 
@@ -488,27 +514,23 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
         obj.composites.stations[i].xbreak, 
         obj.composites.stations[i].webloc, 
         segs_webs[i].segments, 
-        segs_webs[i].webs
-    ) for i in 1:obj.aero.nr]
+        segs_webs[i].webs), closed_section) for i in 1:obj.aero.nr]
 
     shear_center = true 
+    
 
     compliance_list = [GXBeamCS.compliance_matrix(clt, shear_center)[1] for clt in clt_list]
     mass_list = [GXBeamCS.mass_matrix_clt(clt_list[i]; reference=[chords[i]*obj.distro.le_loc[i], 0.0, twists[i]])[1] for i in eachindex(clt_list)] 
 
-
-
     ## Calculate the aerodynamic loads at the extreme wind speed
-    Omega = 0.0 #parked conditions
+    Omega = 0.0 #We should be in parked conditions... if the wind is at 70 m/s (156.6 mph), we should be parked.
     op = windturbine_op.(obj.aero.V_extreme, Omega, obj.aero.pitch, obj.distro.rvec, obj.aero.precone, obj.aero.yaw, obj.aero.tilt, obj.aero.azimuth, obj.aero.hubHt, obj.aero.shearExp, obj.aero.rho)
     out = CCBlade.solve.(Ref(obj.aero.rotor), sections, op)
     
-    ### Dimensionalize the loads and rotate into GXBeam reference frame
+    ### Interpolate the loads into the structural frame. #TODO: This comment probably needs some clarification. 
     fy, fz = uo.get_loads(out, chords, obj.aero.rho, TF)
 
-    current_idx = idx_pitches[end]
-    uo.extreme_loading_analysis!(
-        g,
+    buckling, strain, static_tip_def = uo.extreme_loading_analysis_oop(
         clt_list,
         compliance_list,
         mass_list,
@@ -518,22 +540,32 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
         obj.structural.xp,
         obj.aero.azimuth,
         obj.composites.eps_ult,
-        obj.structural.gravity,
-        obj.idxs.num_elements,
-        obj.idxs.num_buckling,
-        obj.idxs.N_buckling,
-        obj.idxs.N_elements,
-        current_idx,
-        obj.scaling.buckling_scale,
-        obj.scaling.strain_scale,
-        obj.scaling.deflection_scale)
+        obj.structural.gravity)
 
-    
-    current_idx = current_idx + obj.idxs.N_elements + obj.idxs.N_buckling + 1 #Update the current index to the end of the extreme loading analysis.
+    ## buckling constraint
+    current_idx = idx_pitches[end]
+    buckling_idx = current_idx+1:current_idx+obj.idxs.N_buckling
+    g[buckling_idx] = -buckling./obj.scaling.buckling_scale #Checked for CA
+
+    ## Minimum strain constraint
+    current_idx = buckling_idx[end]
+    strain_idx1 = current_idx+1:current_idx+obj.idxs.N_elements
+    g[strain_idx1] = -(strain./(obj.scaling.strain_scale*obj.composites.gamma_f*obj.composites.gamma_m) .+ 1) #Checked for CA
+
+    ## Maximum strain constraint
+    current_idx = strain_idx1[end]
+    strain_idx2 = current_idx+1:current_idx+obj.idxs.N_elements
+    g[strain_idx2] = strain./(obj.scaling.strain_scale*obj.composites.gamma_f*obj.composites.gamma_m) .- 1.0 #Checked for CA
+
+    ## Static tip deflection constraint
+    current_idx = strain_idx2[end]
+    deflection_idx = current_idx+1
+    g[deflection_idx] = 1.1 .* static_tip_def/obj.scaling.deflection_scale .+ 1
+
+
     Omega_rated = obj.aero.Vrated*tsr/obj.aero.rotorR 
     rated_pitch = pitches[9]
-    uo.fatigue_analysis!(
-            g,
+    dynamic_tip_deflections, damages = uo.fatigue_analysis_oop(
             clt_list,
             compliance_list,
             mass_list,
@@ -564,17 +596,20 @@ function (obj::uo.ConstraintFunction)(g, x; verbose::Bool=false)
             obj.aero.a,
             obj.composites.eps_ult,
             obj.composites.m,
-            obj.composites.nu,
             obj.structural.gravity,
             obj.idxs.fat_idxs,
-            obj.idxs.num_elements,
-            obj.idxs.N_bulk_full,
-            current_idx,
-            obj.idxs.ntimecon,
-            obj.scaling.deflection_scale)
-    
+            obj.idxs.num_elements)
+
+    current_idx = deflection_idx 
+    tip_def_idx = current_idx+1:current_idx+obj.idxs.ntimecon
+    g[tip_def_idx] = 1.1 .* dynamic_tip_deflections./obj.scaling.deflection_scale .+ 1  
+
+    current_idx = tip_def_idx[end]
+    damage_idxs = current_idx+1:current_idx+obj.idxs.Nfat
+    g[damage_idxs] = log.(damages./obj.composites.nu)./200 #Dlife and scaling factor
 
 end
+
 
 ### initial guess 
 chords0 = cvec[cp_idxs[2:end]]./chord_scale
@@ -582,7 +617,7 @@ twist0 = twistvec[twist_cp_idxs[2:end]]./twist_scale
 f_segs0 = ones(nf_cp*5)./thick_scale
 
 pitches0 = zeros(nwind)./pitch_scale
-pitches0[8:end] .= range(4.0*pi/180, stop=25.0*pi/180, length=nwind-7)./pitch_scale 
+pitches0[8:end] .= range(4.0*pi/180, stop=25.0*pi/180, length=nwind-7)./pitch_scale
 
 tsr_naught = tsr0/tsr_scale
 
@@ -591,7 +626,6 @@ x0 = vcat(chords0, twist0, f_segs0, pitches0, tsr_naught)
 x0 = x0
 
 nx = length(x0)
-
 
 
 ### Bounds 
@@ -603,12 +637,12 @@ nt = length(twist0)
 lb_twist = (0.0*pi/180).*ones(nt)./twist_scale 
 ub_twist = (40.0*pi/180).*ones(nt)./twist_scale
 
-minf = 0.5674 
+
 
 lb_f_segs = minf*ones(5*nf_cp)./thick_scale
 ub_f_segs = 3.0*ones(5*nf_cp)./thick_scale #5 segments at each cross section
 
-lb_pitches = 0.0*pi/180*ones(nwind)./pitch_scale
+lb_pitches = 0.0*pi/180*ones(nwind)./pitch_scale 
 ub_pitches = 30.0*pi/180*ones(nwind)./pitch_scale
 
 lb_tsr = 1.0/tsr_scale
@@ -622,50 +656,10 @@ if length(lx) != length(ux) != nx
 end
 
 ### Constraints
-ng = ntwist + Nsegs + 2*nwind + (nwind-1) + N_buckling + N_elements + 1 + ntimecon + Nfat #Number of constraints
+ng = ntwist + Nsegs + 3*nwind + (nwind-1) + N_buckling + 2*N_elements + 1 + ntimecon + Nfat #Number of constraints
 
-## Geometry constraints
-lg_twist_monotonicity = -Inf.*ones(ntwist)
-ug_twist_monotonicity = zeros(ntwist)
-
-lg_fvec = minf.*ones(Nsegs)
-ug_fvec = 3.0.*ones(Nsegs)
-
-## power case constraints
-lg_power = zeros(nwind)
-ug_power = ones(nwind).*(5e6/power_scale) 
-
-lg_thrust = zeros(nwind)
-ug_thrust =  ones(nwind)
-
-lg_pitches = zeros(nwind-1)
-ug_pitches = ones(nwind-1).*Inf 
-
-## Extreme case constraints
-lg_buckling = zeros(N_buckling)
-ug_buckling = Inf.*ones(N_buckling)     
-
-gamma_f = 1.35 #safety factor
-gamma_m = 1.1
-lg_strain = -ones(N_elements)./(gamma_f*gamma_m)
-ug_strain = ones(N_elements)./(gamma_f*gamma_m) 
-
-lg_deflection = -5.0191*0.9/deflection_scale
-ug_deflection = abs(lg_deflection) 
-
-### Unsteady case constraints
-lg_dyn_tip_deflection = (-5.0191*1.1/deflection_scale).*ones(ntimecon)
-ug_dyn_tip_deflection = abs.(lg_dyn_tip_deflection)
-
-lg_fatigue = -Inf.*ones(Nfat)
-ug_fatigue = zeros(Nfat) # log(1) = 0 => constrains lifetime damage to less than 1.0. 
-
-
-lg = vcat(lg_twist_monotonicity, lg_fvec, lg_power, lg_thrust, lg_pitches, lg_buckling, lg_strain, lg_deflection, lg_dyn_tip_deflection, lg_fatigue)
-ug = vcat(ug_twist_monotonicity, ug_fvec, ug_power, ug_thrust, ug_pitches, ug_buckling, ug_strain, ug_deflection, ug_dyn_tip_deflection, ug_fatigue)
-
-length(lg) != length(ug) != ng ? @warn("Length of lower and upper bounds do not match the number of constraints.") : nothing
-
+lg = -Inf*ones(ng)
+ug = zeros(ng)
 
 constraint_names = ["Twist Monotonicity", "Fvec", "Power", "Thrust", "Pitches", "Buckling", "Strain", "Deflection", "Dynamic Tip Deflection", "Fatigue"]
 constraint_nums = [ntwist, Nsegs, nwind, nwind, nwind-1, N_buckling, N_elements, 1, ntimecon, Nfat]
@@ -674,12 +668,6 @@ constraint_ends = cumsum(constraint_nums)
 
 
 
-
-# Define the range of number of chord/twist design variables to test
-design_var_counts = 3:10  # Example: test from 3 to 10 control points
-
-# Store timing results
-results = Dict{Int, Dict{String, Float64}}()
 
 
 function make_cp_indices(start_idx::Int, end_idx::Int, n_cp::Int)
@@ -703,7 +691,7 @@ function make_cp_indices(start_idx::Int, end_idx::Int, n_cp::Int)
 end
 
 
-# nwind = parse(Int, ARGS[1]) #For testing with slurm job arrays
+# nwind = parse(Int, ARGS[1]) #for use with slurm job arrays
 nwind = 20
 println("\nTesting with $nwind wind speeds...")
 
@@ -713,11 +701,11 @@ pitches0 = zeros(nwind)./pitch_scale
 pitches0[8:end] .= range(4.0*pi/180, stop=25.0*pi/180, length=nwind-7)./pitch_scale 
 
 # Redefine aero with new Vcurve and nwind
-aero = (; rotor, airfoils, dsairfoils, xcp, B, Rhub, Rtip, pitch, precone, yaw, tilt, azimuth0, azimuth, hubHt, shearExp, rho, mu, a, power_rating, Vrated, Vinf, Vin, Vout, V_extreme, Vmean, Vcurve, tsr0, env_data, nr, rotorR, nwind, rating, Vtip)
+aero = (; rotor, airfoils, dsairfoils, xcp, B, Rhub, Rtip, pitch, precone, yaw, tilt, azimuth0, azimuth, hubHt, shearExp, rho, mu, a, power_rating, max_thrust, Vrated, Vinf, Vin, Vout, V_extreme, Vmean, Vcurve, tsr0, env_data, nr, rotorR, nwind, rating, Vtip)
 
 # Initial guess for design variables
 x0 = vcat(chords0, twist0, f_segs0, pitches0, tsr_naught)
-x0 = x0 #./ individual_scale
+x0 = x0 
 nx = length(x0)
 @show nx
 flush(stdout)
@@ -728,8 +716,9 @@ objective = uo.ObjectiveFunction(distro, assembly, aero, structural, composites,
 constraint = uo.ConstraintFunction(distro, assembly, aero, structural, composites, idxs, scaling)
 
 # Update constraint counts for new nwind
-ng = ntwist + Nsegs + 2*nwind + (nwind-1) + N_buckling + N_elements + 1 + ntimecon + Nfat
+ng = ntwist + Nsegs + 3*nwind + (nwind-1) + N_buckling + 2*N_elements + 1 + ntimecon + Nfat
 
+# Time function evaluation
 println("Objective call...")
 @time objective(deepcopy(x0))
 @time objective(deepcopy(x0))
@@ -740,54 +729,35 @@ flush(stdout)
 
 println("Constraint call...")
 @time constraint(zeros(ng), deepcopy(x0))
-@time constraint(zeros(ng), deepcopy(x0))
-@time constraint(zeros(ng), deepcopy(x0))
-@time constraint(zeros(ng), deepcopy(x0))
+# @time constraint(zeros(ng), deepcopy(x0))
+# @time constraint(zeros(ng), deepcopy(x0))
+# @time constraint(zeros(ng), deepcopy(x0))
 
 flush(stdout)
 
-### Time ForwardDiff gradient
-println("Timing ForwardDiff.jacobian!...")
-y = zeros(ng)
-config = ForwardDiff.JacobianConfig(constraint, y, deepcopy(x0), ForwardDiff.Chunk{8}())
-result = DiffResults.JacobianResult(y, deepcopy(x0))
-ForwardDiff.jacobian!(result, constraint, y, deepcopy(x0))
-@time ForwardDiff.jacobian!(result, constraint, y, deepcopy(x0))
-@time ForwardDiff.jacobian!(result, constraint, y, deepcopy(x0))
-@time ForwardDiff.jacobian!(result, constraint, y, deepcopy(x0))
+
+function conwrap(x)
+    TF = typeof(x[1])
+    gg = zeros(TF, ng) #Initialize gg to be the same type as x for ReverseDiff compatibility.
+    constraint(gg, x) 
+
+    return ksmax(gg)
+end
+
+println("ReverseDiff....")
+dgr = ReverseDiff.gradient(conwrap, deepcopy(x0))
+@time ReverseDiff.gradient(conwrap, deepcopy(x0))
+# @time ReverseDiff.gradient(conwrap, deepcopy(x0))
+# @time ReverseDiff.gradient(conwrap, deepcopy(x0))
+# @time ReverseDiff.gradient(conwrap, deepcopy(x0))
 
 
-
-### Time PolyesterForwardDiff threaded jacobian
-println("Timing PolyesterForwardDiff.threaded_jacobian!...")
-using PolyesterForwardDiff
-y = zeros(ng)
-Jpfd = zeros(ng, nx)
-PolyesterForwardDiff.threaded_jacobian!(constraint, y, Jpfd, x0, ForwardDiff.Chunk(8))
-@time PolyesterForwardDiff.threaded_jacobian!(constraint, y, Jpfd, x0, ForwardDiff.Chunk(8))
-@time PolyesterForwardDiff.threaded_jacobian!(constraint, y, Jpfd, x0, ForwardDiff.Chunk(8))
-@time PolyesterForwardDiff.threaded_jacobian!(constraint, y, Jpfd, x0, ForwardDiff.Chunk(8))
-
-flush(stdout)
-
-### Time SparseDeriv
-println("Using Sparse PolyesterForwardDiff:")
-Js = sparse(Jpfd)
-rows, cols, _ = findnz(Js)
-sparsity_pattern = sparse(rows, cols, ones(length(rows)), ng, nx)
-chunksize = 8
-sderiv = uo.SparseForwardDeriv(objective, constraint, nx, ng, sparsity_pattern, chunksize, deepcopy(x0))
-gs = zeros(ng)
-dfs = zeros(nx)
-dgs = zeros(ng, nx)
-sderiv(gs, dfs, dgs, deepcopy(x0))
-@time sderiv(gs, dfs, dgs, deepcopy(x0))
-@time sderiv(gs, dfs, dgs, deepcopy(x0))
-@time sderiv(gs, dfs, dgs, deepcopy(x0))
-
-    
-
-
+# println("Polyester....")
+# dgp = zeros(ng)
+# PolyesterForwardDiff.threaded_gradient!(conwrap, dgp, deepcopy(x0), ForwardDiff.Chunk(8))
+# @time PolyesterForwardDiff.threaded_gradient!(conwrap, dgp, deepcopy(x0), ForwardDiff.Chunk(8))
+# @time PolyesterForwardDiff.threaded_gradient!(conwrap, dgp, deepcopy(x0), ForwardDiff.Chunk(8))
+# @time PolyesterForwardDiff.threaded_gradient!(conwrap, dgp, deepcopy(x0), ForwardDiff.Chunk(8))
 
 
 

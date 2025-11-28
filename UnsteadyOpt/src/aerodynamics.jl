@@ -24,7 +24,7 @@ function get_loads(outs, chords, rho, TF)
 
     for i = 1:nr
         sphi, cphi = sincos(outs[i].phi)
-        Cx = outs[i].cl*cphi + outs[i].cd*sphi #Rotate into the blade root reference frame. I just checked this. 6/11/25
+        Cx = outs[i].cl*cphi + outs[i].cd*sphi #Rotate into the blade root reference frame.
         Cy = -(outs[i].cl*sphi - outs[i].cd*cphi)
         q_local = 0.5*rho*outs[i].W^2 #Local dynamic pressure
 
