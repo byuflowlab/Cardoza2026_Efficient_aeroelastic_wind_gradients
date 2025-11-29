@@ -1,4 +1,170 @@
+"""
+    read_precomp_sections_file(file, loc_w)
 
+Reads composite sections from a PreComp input file
+"""
+function read_precomp_sections_file(file, loc_w)
+
+    open(file) do f
+        readline(f)
+        readline(f)
+        readline(f)
+
+        # number of sectors
+        nu = parse(Int, split(chomp(readline(f)))[1])
+
+        readline(f)
+        readline(f)
+
+        # read normalized chord locations
+        loc_u = [parse(Float64, x) for x in split(chomp(readline(f)))]
+
+        nlam_u, nply_u, tply_u, theta_u, imat_u = read_precomp_sector_from_file(f, nu)
+
+        readline(f)
+        readline(f)
+        readline(f)
+
+        # number of sectors
+        nl = parse(Int, split(chomp(readline(f)))[1])
+
+        readline(f)
+        readline(f)
+
+        loc_l = [parse(Float64, x) for x in split(chomp(readline(f)))]
+
+        nlam_l, nply_l, tply_l, theta_l, imat_l = read_precomp_sector_from_file(f, nl)
+
+        readline(f)
+        readline(f)
+        readline(f)
+        readline(f)
+
+        nw = length(loc_w)
+
+        nlam_w, nply_w, tply_w, theta_w, imat_w = read_precomp_sector_from_file(f, nw)
+
+        return loc_u, nlam_u, nply_u, tply_u, theta_u, imat_u,
+            loc_l, nlam_l, nply_l, tply_l, theta_l, imat_l,
+            loc_w, nlam_w, nply_w, tply_w, theta_w, imat_w
+    end
+end
+
+"""
+read_precomp_sector_from_file(f, n)
+
+Reads PreComp sector from a precomp file.
+"""
+function read_precomp_sector_from_file(f, n)
+
+    nlam = Vector{Int}(undef, n)
+    nply = Vector{Vector{Int}}(undef, n)
+    tply = Vector{Vector{Float64}}(undef, n)
+    theta = Vector{Vector{Float64}}(undef, n)
+    imat = Vector{Vector{Int}}(undef, n)
+
+    for i = 1:n
+        readline(f)
+        readline(f)
+
+        line = chomp(readline(f))
+
+        nlam[i] = parse(Int, split(line)[2])
+
+        readline(f)
+        readline(f)
+        readline(f)
+        readline(f)
+
+        nply[i] = zeros(Int, nlam[i])
+        tply[i] = zeros(Float64, nlam[i])
+        theta[i] = zeros(Float64, nlam[i])
+        imat[i] = zeros(Int, nlam[i])
+
+        for j = 1:nlam[i]
+            array = split(chomp(readline(f)))
+            nply[i][j] = parse(Int, array[2])
+            tply[i][j] = parse(Float64, array[3])
+            theta[i][j] = parse(Float64, array[4])*pi/180
+            imat[i][j] = parse(Int, array[5])
+        end
+    end
+
+    return nlam, flatten(nply), flatten(tply), flatten(theta), flatten(imat)
+end
+
+flatten(x) = collect(Iterators.flatten(x))
+
+"""
+    read_precomp_profile_file(file)
+
+Reads a precomp profile
+"""
+function read_precomp_profile_file(file)
+    open(file, "r") do f
+
+        # read header
+        naf = parse(Int, split(chomp(readline(f)))[1])
+        readline(f)
+        readline(f)
+        readline(f)
+
+        # read airfoil data
+        x = zeros(naf)
+        y = zeros(naf)
+        for i = 1:naf
+            data = split(chomp(readline(f)))
+            x[i] = parse(Float64, data[1])
+            y[i] = parse(Float64, data[2])
+        end
+
+        return x, y
+    end
+end
+
+"""
+    read_precomp_materials_file(file)
+
+reads material properties from PreComp input file
+"""
+function read_precomp_materials_file(file)
+
+    open(file) do f
+
+        # skip through header
+        for i in 1:3
+            readline(f)
+        end
+
+        mat_id = Int[]
+        E1 = Float64[]
+        E2 = Float64[]
+        G12 = Float64[]
+        nu12 = Float64[]
+        rho = Float64[]
+        name = String[]
+        for line in eachline(f)
+            array = split(line, limit=7)
+            push!(mat_id, parse(Int, array[1]))
+            push!(E1, parse(Float64, array[2]))
+            push!(E2, parse(Float64, array[3]))
+            push!(G12, parse(Float64, array[4]))
+            push!(nu12, parse(Float64, array[5]))
+            push!(rho, parse(Float64, array[6]))
+            push!(name, strip(chomp(array[7])))
+        end
+
+        isort = sortperm(mat_id)
+        E1 = E1[isort]
+        E2 = E2[isort]
+        G12 = G12[isort]
+        nu12 = nu12[isort]
+        rho = rho[isort]
+        name = name[isort]
+
+        return E1, E2, G12, nu12, rho, name
+    end
+end
 
 """
     get_precomp_descriptions(path)
@@ -15,7 +181,7 @@ function get_precomp_descriptions(path, yamlpath)
     distro = (; rvec, cvec, twistvec, le_loc)
 
     ### Read in the materials and convert them. 
-    e1, e2, g12, nu12, rho, names = PreComp.read_precomp_materials_file(joinpath(path,"materials.inp"))
+    e1, e2, g12, nu12, rho, names = read_precomp_materials_file(joinpath(path,"materials.inp"))
 
     gelcoat = GXBeamCS.Material(e1[1], e2[1], e2[1], g12[1], g12[1], g12[1], nu12[1], nu12[1], nu12[1], rho[1], e1[1]/100, e1[1]/100, e2[1]/100, e2[1]/100, e2[1]/100, e2[1]/100, g12[1]/100, g12[1]/100, g12[1]/100)
 
@@ -44,7 +210,7 @@ function get_precomp_descriptions(path, yamlpath)
     for k in eachindex(rvec)
         fn = k+1
         ### Accessing airfoil data 
-        x, y = PreComp.read_precomp_profile_file(joinpath(path, "shape_"*string(fn)*".inp"))
+        x, y = read_precomp_profile_file(joinpath(path, "shape_"*string(fn)*".inp"))
         # Rearrange the order.
         xmaxidx = argmax(x)
         xtop = reverse(x[1:xmaxidx])
@@ -65,7 +231,7 @@ function get_precomp_descriptions(path, yamlpath)
         locU, n_laminaU, n_pliesU, tU, thetaU, mat_idxU,
         locL, n_laminaL, n_pliesL, tL, thetaL, mat_idxL,
         locW, n_laminaW, n_pliesW, tW, thetaW, mat_idxW =
-        PreComp.read_precomp_sections_file(joinpath(path, "layup_"*string(fn)*".inp"), webloc)
+        read_precomp_sections_file(joinpath(path, "layup_"*string(fn)*".inp"), webloc)
 
         ## Get the layup and convert it to GXBeamCS layers
         #### Layups

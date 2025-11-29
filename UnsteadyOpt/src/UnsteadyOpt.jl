@@ -1,7 +1,7 @@
 module UnsteadyOpt
 
     using YAML, DelimitedFiles
-    using PreComp, GXBeam, GXBeamCS, CCBlade, OpenFASTTools
+    using GXBeam, GXBeamCS, CCBlade, OpenFASTTools
     import WATT
     using Base.Threads, StaticArrays, LinearAlgebra, FLOWMath, Statistics
     using RecipesBase

@@ -1204,13 +1204,6 @@ version = "4.1.0"
     Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
     MutableArithmetics = "d8a4904e-b15c-11e9-3269-09a3773c0cb0"
 
-[[deps.PreComp]]
-git-tree-sha1 = "337670c5299ed3685259fb9741a73efaaebbb8f0"
-repo-rev = "master"
-repo-url = "https://github.com/byuflowlab/PreComp.jl.git"
-uuid = "19f83dec-a593-11e8-1459-fbcca26c877b"
-version = "0.1.0"
-
 [[deps.PrecompileTools]]
 deps = ["Preferences"]
 git-tree-sha1 = "5aa36f7049a63a1528fe8f7c3f2113413ffd4e1f"
@@ -1720,7 +1713,7 @@ uuid = "1cfade01-22cf-5700-b092-accc4b62d6e1"
 version = "0.4.1"
 
 [[deps.UnsteadyOpt]]
-deps = ["CCBlade", "DelimitedFiles", "DiffResults", "DynamicStallModels", "FLOWMath", "ForwardDiff", "GXBeam", "GXBeamCS", "ImplicitAD", "LinearAlgebra", "OpenFASTTools", "PolyesterForwardDiff", "PreComp", "RecipesBase", "ReverseDiff", "SparseArrays", "SparseDiffTools", "SpecialFunctions", "StaticArrays", "Statistics", "WATT", "YAML"]
+deps = ["CCBlade", "DelimitedFiles", "DiffResults", "DynamicStallModels", "FLOWMath", "ForwardDiff", "GXBeam", "GXBeamCS", "ImplicitAD", "LinearAlgebra", "OpenFASTTools", "PolyesterForwardDiff", "RecipesBase", "ReverseDiff", "SparseArrays", "SparseDiffTools", "SpecialFunctions", "StaticArrays", "Statistics", "WATT", "YAML"]
 path = "UnsteadyOpt"
 uuid = "92485b4e-a96c-4421-8205-6ce554031e8c"
 version = "0.1.0"
