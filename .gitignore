@@ -18,7 +18,6 @@ figures/*
 *.jpg
 *.bts
 *.wnd
-*.csv
 *.gif
 *.fls
 *.fdb_latexmk
