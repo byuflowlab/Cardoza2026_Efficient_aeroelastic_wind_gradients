@@ -604,6 +604,10 @@ tsr_naught = tsr0/tsr_scale
 x0 = vcat(chords0, twist0, f_segs0, pitches0, tsr_naught)
 x0 = x0./individual_scale #Scale the initial guess by the individual scale.
 
+dv_lengths = [length(chords0), length(twist0), length(f_segs0), length(pitches0), 1]
+dv_names = ["Chords", "Twists", "Segment Thickness Scaling Factors", "Pitches", "Tip Speed Ratio"]
+dv_ends = cumsum(dv_lengths)
+
 nx = length(x0)
 
 
@@ -761,16 +765,16 @@ end
 
 
 
-run_analysis = false
+run_analysis = true
 if run_analysis
 
     println("Running optimization result analysis...")
 
     gopt = zeros(ng)
     println("   Running objective function...")
-    ffinal = objective(deepcopy(xopt); showfig=true)
+    ffinal = objective(deepcopy(xopt); verbose=true)
     println("   Running constraint function...")
-    constraint(gopt, deepcopy(xopt); showfig=false)
+    constraint(gopt, deepcopy(xopt); verbose=false)
 
     gopt_violations = uo.check_constraints(gopt, lg, ug)
 
@@ -790,6 +794,13 @@ if run_analysis
     df_opt3 = zeros(nx)
     dg_opt3 = zeros(ng, nx)
     f_opt3 = fderiv(gopt3, df_opt3, dg_opt3, deepcopy(xopt))
+
+    println("   Running Finite difference derivatives...")
+    finderiv = uo.FiniteDeriv(objective, constraint, nx, ng, sparsity_pattern)
+    gopt4 = zeros(ng)
+    df_opt4 = zeros(nx)
+    dg_opt4 = zeros(ng, nx)
+    f_opt4 = finderiv(gopt4, df_opt4, dg_opt4, deepcopy(xopt))
 
 
     ### Get the scaling factors based on the Jacobian
@@ -811,7 +822,7 @@ end
 
 
 ############## Extract optimization results and plot
-plot_results = true #Runs the plots code (Rewrites some variables above)
+plot_results = false #Runs the plots code (Rewrites some variables above)
 show_fig = false
 save_fig = false
 base_name = "_unsteady_extrachord_rotated_"
