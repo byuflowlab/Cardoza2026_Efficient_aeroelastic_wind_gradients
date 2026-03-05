@@ -196,6 +196,44 @@ function (deriv::SparseForwardDeriv)(g, df, dg, x)
     return DiffResults.value(deriv.result)
 end
 
+struct ForwardDeriv{T1, T2, T3, TR}
+    obj::T1 #Objective object (functor)
+    con::T2 #Constraints object (functor)
+    y::T3 #gradient
+    result::TR #objective gradient DiffResults cache 
+    chunksize::Int
+end
+
+"""
+    ForwardDeriv(obj::ObjectiveFunction, sizes::Tuple{Int, Int})
+
+Create a derivative object for the given objective function and sizes.
+
+*Arguments*
+- `obj::ObjectiveFunction`: The objective function for which derivatives are computed.
+- `sizes::Tuple{Int, Int}`: A tuple containing the number of design variables and the number of constraints.
+"""
+function ForwardDeriv(obj::ObjectiveFunction, con::ConstraintFunction, nx, ng, chunksize, x0)
+    y = zeros(ng) #constraints
+
+    ### Objective cache
+    result = DiffResults.GradientResult(x0)
+
+
+    return ForwardDeriv(obj, con, y, result, chunksize) 
+end
+
+function (deriv::ForwardDeriv)(g, df, dg, x)
+
+    ### Objective function
+    ForwardDiff.gradient!(deriv.result, deriv.obj, x)
+    df .= DiffResults.gradient(deriv.result)
+
+    ### Constraint functions
+    PolyesterForwardDiff.threaded_jacobian!(deriv.con, g, dg, x, ForwardDiff.Chunk(deriv.chunksize))
+
+    return DiffResults.value(deriv.result)
+end
 
 struct FiniteDeriv{T1, T2, T3, T4, T5}
     obj::T1
@@ -233,8 +271,8 @@ function (deriv::FiniteDeriv)(g, df, dg, x)
 
     dg .= colored_parallel_finite_jacobian!(deriv.con, deriv.y, x, deriv.sp; colorvec=deriv.colors)
 
-    df .= view(deriv.dx, 1, :)
-    dg .= view(deriv.dx, 2:ng+1, :)
+    # df .= view(deriv.dx, 1, :)
+    # dg .= view(deriv.dx, 2:ng+1, :)
 
     return f
 end

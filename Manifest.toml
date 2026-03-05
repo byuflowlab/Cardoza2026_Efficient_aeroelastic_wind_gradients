@@ -1,6 +1,6 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.5"
+julia_version = "1.11.9"
 manifest_format = "2.0"
 project_hash = "900946fb877bec4955032494ac2c3d1a494217d6"
 
@@ -592,9 +592,7 @@ version = "0.73.19+1"
 
 [[deps.GXBeam]]
 deps = ["ArnoldiMethod", "ChainRulesCore", "FLOWMath", "FillArrays", "ForwardDiff", "ImplicitAD", "IterativeSolvers", "LinearAlgebra", "LinearMaps", "NLsolve", "OffsetArrays", "Printf", "RecipesBase", "ReverseDiff", "Roots", "SciMLBase", "SparseArrays", "SparseDiffTools", "StaticArrays", "UnPack", "WriteVTK"]
-git-tree-sha1 = "d51dad8effcb7b2b946fd1d1adc3d6eb11e1b062"
-repo-rev = "master"
-repo-url = "https://github.com/byuflowlab/GXBeam.jl.git"
+path = "/Users/adamcardoza/.julia/dev/GXBeam"
 uuid = "974624c9-1acb-4ad6-a627-8ac40fc27a3e"
 version = "1.1.0"
 

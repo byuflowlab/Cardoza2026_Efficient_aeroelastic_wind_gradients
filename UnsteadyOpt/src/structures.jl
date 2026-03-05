@@ -251,6 +251,15 @@ function fatigue_analysis!(g, clt_list, compliance, mass, chords, twists, Omega_
 
     ntime = length(tvec)
 
+    # deflections = zeros(TF, ntime, length(gxhistory[end].elements), 3)
+    # for i = eachindex(tvec)
+    #     for j = eachindex(gxhistory[i].elements)
+    #         deflections[i, j, :] = gxhistory[i].elements[j].u
+    #     end
+    # end
+    # println("Writing deflections to CSV...")
+    # writedlm("deflections.csv", reshape(deflections, ntime, :))
+
     ### Extract the tip deflection
     tipdef_idxs = Nshift+1:Nshift+Ntimecon
     for i = 201:ntime
