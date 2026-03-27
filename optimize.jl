@@ -149,7 +149,7 @@ end
 
 
 #Rotor object
-rotor = Rotor(Rhub, Rtip, B, precone=precone, turbine=true)
+rotor = WATT.Rotor(Rhub, Rtip, B, precone=precone, turbine=true)
 
 
 ### discretize the beam
@@ -841,6 +841,7 @@ show_fig = false
 save_fig = false
 base_name = "_unsteady_extrachord_rotated_"
 if @isdefined(xopt) && plot_results
+    # pgfplotsx()
     using Plots.Measures
 
     my_color_palette=[
@@ -857,6 +858,9 @@ if @isdefined(xopt) && plot_results
         color_palette=my_color_palette,
         grid=false,
         foreground_color_legend=nothing,
+        tickfontsize=7,
+        guidefontsize=7,
+        legendfontsize=6,
     )
     fit = (xx, yy) -> Akima(xx, yy, 1e-4)
 
@@ -932,7 +936,7 @@ if @isdefined(xopt) && plot_results
 
 
 
-    c1plt = plot(rsmooth, chords0_smooth, xlabel="Radius (m)", ylabel="Chord (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, ylims=(0, 8))
+    c1plt = plot(rsmooth, chords0_smooth, ylabel="Chord (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=true) #ylims=(0, 8),
     plot!(c1plt, rsmooth, chords_opt_smooth, lab="Optimized", lw=2)
     scatter!(c1plt, r_cp, c_cp, lab=false, seriescolor=2)
     # show_fig ? display(c1plt) : nothing
@@ -941,23 +945,23 @@ if @isdefined(xopt) && plot_results
     # c2plt = plot(objective, cvec, aspect_ratio=:equal, legend=false, xaxis=false, yaxis=false, grid=false, fillcolor=1)
     c2plt = plot(objective, chords_opt, aspect_ratio=:equal, legend=false, xaxis=false, yaxis=false, grid=false, fillcolor=2, xlims=xlims(c1plt), fillalpha=0.8)
 
-    l = @layout [a{0.875h}; b{0.125h}]
-    cplt = plot(c1plt, c2plt, layout=l, size=(800, 750))
+    # l = @layout [a{0.875h}; b{0.125h}]
+    # cplt = plot(c1plt, c2plt, layout=l, size=(800, 750))
     # display(cplt)
 
-    twistplt = plot(rsmooth, twists0_smooth, xlabel="Radius (m)", ylabel="Twist (rad)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
-    plot!(twistplt, rsmooth, twists_opt_smooth, lab="Optimized", lw=2)
-    scatter!(twistplt, r_cp_twist, x_twist, lab=false, seriescolor=2)
+    twistplt = plot(rsmooth, twists0_smooth.*(180/pi), xlabel="Radius (m)", ylabel="Twist (deg)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
+    plot!(twistplt, rsmooth, twists_opt_smooth.*(180/pi), lab="Optimized", lw=2)
+    scatter!(twistplt, r_cp_twist, x_twist.*(180/pi), lab=false, seriescolor=2)
     # show_fig ? display(twistplt) : nothing
     # save_fig ? savefig(twistplt, filename*base_name*"twist_"*nowstr*".png") : nothing
 
-    pitchplt = plot(Vcurve, pitches_initial, xlabel="Wind Speed (m/s)", ylabel="Pitch (rad)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
-    plot!(pitchplt, Vcurve, pitches_opt, lab="Optimized", lw=2)
+    pitchplt = plot(Vcurve, pitches_initial.*(180/pi), xlabel="Wind Speed (m/s)", ylabel="Pitch (deg)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
+    plot!(pitchplt, Vcurve, pitches_opt.*(180/pi), lab="Optimized", lw=2)
     # show_fig ? display(pitchplt) : nothing
     # save_fig ? savefig(pitchplt, filename*base_name*"pitch_"*nowstr*".png") : nothing
-    ax2 = twinx()
-    plot!(ax2, Vcurve, omega_initial, lab="Original", ylabel="Rotational Speed (rad/s)", lw=2, legend=false, seriescolor=1, linestyle=:dash)
-    plot!(ax2, Vcurve, omega_opt, lab="Optimized", lw=2, legend=false, seriescolor=2, linestyle=:dash)
+    
+    omegaplt = plot(Vcurve, omega_initial, ylabel="Rotational Speed\n(rad/s)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
+    plot!(omegaplt, Vcurve, omega_opt, lab="Optimized", lw=2)
 
     
 
@@ -1033,38 +1037,40 @@ if @isdefined(xopt) && plot_results
 
 
     #### Scaling factors on bottom
-    angleplt = plot(twistplt, pitchplt, layout=(2, 1), size=(800, 600), legend=false)
+    leftplt = plot(c1plt, twistplt, layout=(2, 1), size=(800, 600))
+    rightplt = plot(omegaplt, pitchplt, layout=(2, 1), size=(800, 600), legend=false)
 
     l3 = @layout [a{0.875h}; b{0.125h}]
-    toprightplt = plot(angleplt, crossplt, layout=l3, size=(800, 750))
+    topleftplt = plot(leftplt, c2plt, layout=l3, size=(800, 750))
+    toprightplt = plot(rightplt, crossplt, layout=l3, size=(800, 750))
 
 
     cylidxs = 1:14
     cyl1plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,1].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, bottom_margin=-2.0mm, legend=false, yticks=myticks(3, seg_thickness0[cylidxs,1].*1e3, seg_thicknessopt[cylidxs,1].*1e3))
     plot!(cyl1plt, rvec[cylidxs], seg_thicknessopt[cylidxs,1].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl1plt, -0.1, 32, text(L"S_1", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl1plt, -0.1, 32, text(L"S_1", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(cyl1plt)
 
     cyl2plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,2].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[4], axiscolor=my_color_palette[4], fg_color_text=my_color_palette[4], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,2].*1e3, seg_thicknessopt[cylidxs,2].*1e3))
     plot!(cyl2plt, rvec[cylidxs], seg_thicknessopt[cylidxs,2].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl2plt, -0.1, 33, text(L"S_2", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl2plt, -0.1, 33, text(L"S_2", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(cyl2plt)
 
     cyl3plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,3].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[5], axiscolor=my_color_palette[5], fg_color_text=my_color_palette[5], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,3].*1e3, seg_thicknessopt[cylidxs,3].*1e3))
     plot!(cyl3plt, rvec[cylidxs], seg_thicknessopt[cylidxs,3].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl3plt, -0.1, 42, text(L"S_3", :black, font(11, "Palatino Roman"), :center, rotation = 90))
-    annotate!(cyl3plt, -1.6, 30, text("Cylinder", :black, font(11, "Palatino Roman"), :center, rotation = 90))
-    annotate!(cyl3plt, -0.9, 30, text("Segment Thickness (mm)", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl3plt, -0.1, 42, text(L"S_3", :black, font(7, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl3plt, -1.6, 30, text("Cylinder", :black, font(7, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl3plt, -0.9, 30, text("Segment Thickness (mm)", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(cyl3plt)
 
     cyl4plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,4].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[6], axiscolor=my_color_palette[6], fg_color_text=my_color_palette[6], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,4].*1e3, seg_thicknessopt[cylidxs,4].*1e3))
     plot!(cyl4plt, rvec[cylidxs], seg_thicknessopt[cylidxs,4].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl4plt, -0.1, 64, text(L"S_4", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl4plt, -0.1, 64, text(L"S_4", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(cyl4plt)
 
     cyl5plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,5].*1e3, xlabel="Radius (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[7], axiscolor=my_color_palette[7], fg_color_text=my_color_palette[7], top_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,5].*1e3, seg_thicknessopt[cylidxs,5].*1e3))
     plot!(cyl5plt, rvec[cylidxs], seg_thicknessopt[cylidxs,5].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl5plt, -0.1, 58, text(L"S_5", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(cyl5plt, -0.1, 58, text(L"S_5", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(cyl5plt)
     # savefig(cyl5plt, filename*base_name*"thickness_seg5_"*nowstr*".png")
 
@@ -1075,29 +1081,29 @@ if @isdefined(xopt) && plot_results
     bladeidxs = 15:nr
     blade1plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,1].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, bottom_margin=-2.0mm, legend=false, yticks=myticks(3, seg_thickness0[bladeidxs,1].*1e3, seg_thicknessopt[bladeidxs,1].*1e3), ylims=(2.85, 8.5))
     plot!(blade1plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,1].*1e3, lab="Optimized", lw=2)
-    annotate!(blade1plt, 5, 6, text(L"S_1", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade1plt, 5, 6, text(L"S_1", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(blade1plt)
 
     blade2plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,2].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,2].*1e3, seg_thicknessopt[bladeidxs,2].*1e3), ylims=(5, 30.670875651062577))
     plot!(blade2plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,2].*1e3, lab="Optimized", lw=2)
-    annotate!(blade2plt, 5, 17, text(L"S_2", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade2plt, 5, 17, text(L"S_2", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(blade2plt)
 
     blade3plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,3].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,3].*1e3, seg_thicknessopt[bladeidxs,3].*1e3))
     plot!(blade3plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,3].*1e3, lab="Optimized", lw=2)
-    annotate!(blade3plt, 5, 37, text(L"S_3", :black, font(11, "Palatino Roman"), :center, rotation = 90))
-    annotate!(blade3plt, 1, 30, text("Segment Thickness (mm)", :black, font(11, "Palatino Roman"), :center, rotation = 90))
-    annotate!(blade3plt, -2.5, 30, text("Airfoil", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade3plt, 5, 37, text(L"S_3", :black, font(7, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade3plt, 1, 30, text("Segment Thickness (mm)", :black, font(7, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade3plt, -2.5, 30, text("Airfoil", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(blade3plt)
 
     blade4plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,4].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, fg_color_text=my_color_palette[6], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,4].*1e3, seg_thicknessopt[bladeidxs,4].*1e3))
     plot!(blade4plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,4].*1e3, lab="Optimized", lw=2)
-    annotate!(blade4plt, 5, 53, text(L"S_4", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade4plt, 5, 53, text(L"S_4", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(blade4plt)
 
     blade5plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,5].*1e3, xlabel="Radius (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, fg_color_text=my_color_palette[7], top_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,5].*1e3, seg_thicknessopt[bladeidxs,5].*1e3), ylims=(2.8, 9.5))
     plot!(blade5plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,5].*1e3, lab="Optimized", lw=2)
-    annotate!(blade5plt, 5, 6, text(L"S_5", :black, font(11, "Palatino Roman"), :center, rotation = 90))
+    annotate!(blade5plt, 5, 6, text(L"S_5", :black, font(7, "Palatino Roman"), :center, rotation = 90))
     # display(blade5plt)
     # savefig(blade5plt, filename*base_name*"thickness_seg5_"*nowstr*".png")
 
@@ -1106,7 +1112,7 @@ if @isdefined(xopt) && plot_results
 
 
     lf = @layout [a{0.6h} b{0.6h}; c{0.4h} d{0.4h}]
-    optplt = plot(cplt, toprightplt, cylplt, bladeplt, layout=lf)
+    optplt = plot(topleftplt, toprightplt, cylplt, bladeplt, layout=lf)
     display(optplt)
     # savefig(optplt, filename*base_name*"optimization_results_focusthicknesses_"*nowstr*".png")
     # savefig(optplt, filename*base_name*"optimization_results_focusthicknesses_"*nowstr*".pdf")
