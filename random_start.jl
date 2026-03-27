@@ -1,13 +1,15 @@
 #=
-Optimize a simplified version of the NREL 5MW wind turbine blade. 
-objective: COE
-by varying: chord, twist, thickness scaling factors, pitch schedule, tip speed ratio
-constraints: power, thrust, deflection, strains, buckling, fatigue damage 
+Random start the optimization for a SLURM system
 
-Adam Cardoza 8/20/25
+Adam Cardoza
 =# 
 localpath = @__DIR__
 cd(localpath)
+
+using Pkg
+Pkg.activate("./")
+
+using Revise
 
 using GXBeamCS, GXBeam, CCBlade, OpenFASTTools, DynamicStallModels
 using FLOWMath, DelimitedFiles, LinearAlgebra, Dates
@@ -25,6 +27,9 @@ rootname = "_COE_opt_"
 
 
 println("running ", filename, " at ", nowstr)
+perturb_idx = ARGS == String[] ? 1 : parse(Int, ARGS[1])
+
+println("running ", filename, " for perturbation ", perturb_idx, " at ", nowstr)
 
 of = OpenFASTTools
 uo = UnsteadyOpt
@@ -72,7 +77,6 @@ azimuth0 = 0.0*pi/180 #initial azimuthal position, radians
 azimuth = 90.0*pi/180 #extreme azimuth, radians
 
 tvec = collect(0:0.05:100.0) #time vector, seconds (for fatigue analysis)
-# tvec = collect(0:0.025:100.0) 
 ntime = length(tvec)
 ntimecon = ntime - 200 #Number of constraints in time (dynamic tip deflection)
 
@@ -190,12 +194,7 @@ individual_scale = [10.0, 10.0, 1.0, 1.0, 1.0, 10.0, 1.0, 10.0, 10.0, 10.0, 10.0
 
 Lscale = [0.1, 0.1, 1.0, 10.0, 1.0, 1.0, 1.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.01, 1.0, 0.1, 0.1, 0.1, 0.1, 1.0, 0.1, 1.0, 0.1, 0.01, 10.0, 10.0, 1.0, 0.1, 0.01, 0.1, 1.0, 0.01, 0.1, 0.01, 0.001, 0.1, 1.0, 1.0, 1.0, 100.0, 0.1, 1000.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0, 10.0, 10.0, 10.0, 100.0, 10.0, 100.0, 100.0, 0.1] #Lagrangian based-scaling
 
-Lscalenew = [10.0, 10.0, 10.0, 0.1, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 10.0, 10.0, 10.0, 0.1, 1.0, 10.0, 100.0, 10.0, 1.0, 10.0, 1.0, 10.0, 100.0, 0.1, 1.0, 10.0, 10.0, 100.0, 10.0, 1.0, 1.0, 1.0, 100.0, 100.0, 0.1, 1.0, 0.1, 1.0, 0.01, 10.0, 0.01, 10.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 1.0, 10.0, 1.0, 1.0, 1.0, 1.0, 10.0] 
-
-# individual_scale = individual_scale .* Lscale 
-# individual_scale_old = individual_scale .* Lscale 
-individual_scale = individual_scale .* Lscalenew
-
+individual_scale = individual_scale .* Lscale
 @warn "Using Lagrangian scaled inputs"
 
 
@@ -608,9 +607,7 @@ tsr_naught = tsr0/tsr_scale
 
 
 x0 = vcat(chords0, twist0, f_segs0, pitches0, tsr_naught)
-x0 = x0./individual_scale #Scale the initial guess by the individual scale. -> Auto includes the new scaling 
-
-# x0 = [0.4028239358431749, 0.4675537947166109, 0.4010315053735982, 0.02899559634967371, 0.1586684149921422, 0.16448182148645088, 0.6610865363107865, 0.01457692416100335, 0.009066056025266573, 0.010252321258681528, 0.00951991951516333, 0.00947690246977771, 0.010172193690986481, 0.010415441473851268, 0.10351677043895527, 0.10706151335039121, 0.10057912915908272, 0.010267724625617767, 0.010271759406807999, 0.10942056110269935, 0.01006434098877854, 0.0960372277723652, 0.09514015116970374, 0.0009558701923253718, 0.009678358260949843, 0.1066419185056164, 0.10801140177499911, 0.09374282121096847, 0.10148177894656758, 0.010291509798503674, 0.10889338351082843, 0.010925879643683316, 0.01074552195837471, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 7.279137596645605e-5, 0.08625786993578798, 0.12190877911997504, 0.1463207664646107, 0.15666498517184385, 0.18970625219078685, 0.19728098283592002, 0.24841191564895287, 0.02840684031478236, 0.028131748159335244, 0.028875893241993206, 0.030830941425237356, 0.0033467136958755445, 0.003965520489397802, 0.00039814475828889534, 0.0004070550004539656, 0.8078374272442163] #Using old scaling #random start that has a negative under the square root. 
+x0 = x0./individual_scale #Scale the initial guess by the individual scale.
 
 dv_lengths = [length(chords0), length(twist0), length(f_segs0), length(pitches0), 1]
 dv_names = ["Chords", "Twists", "Segment Thickness Scaling Factors", "Pitches", "Tip Speed Ratio"]
@@ -697,8 +694,11 @@ length(lg) != length(ug) != ng ? @warn("Length of lower and upper bounds do not 
 # @time f0 = objcon(g0, deepcopy(x0); showfig=false) 
 # @time f0 = objcon(g0, deepcopy(x0); showfig=false) 
 
+p = 0.1
+x0 = uo.sample_space(x0, p, lx, ux)
 
-
+println("Initial design variables:")
+@show x0
 
 
 
@@ -713,11 +713,11 @@ f0 = objective(deepcopy(x0); verbose=true) #Initial objective function value
 g0 = zeros(ng) #Initialize g0 to zero.
 constraint(g0, deepcopy(x0); verbose=false) #Precompile the constraint function (and so we can check initial condition)
 
-# near_tol = 9e-6  # You can adjust this threshold
-# near_violations = uo.get_near_violations(g0, lg, ug, near_tol, constraint_names, constraint_ends)
-# println("Active constraints:")
-# display(near_violations)
-# println("")
+near_tol = 9e-6  # You can adjust this threshold
+near_violations = uo.get_near_violations(g0, lg, ug, near_tol, constraint_names, constraint_ends)
+println("Active constraints:")
+display(near_violations)
+println("")
 
 
 
@@ -737,20 +737,19 @@ deriv = uo.SparseForwardDeriv(objective, constraint, nx, ng, sparsity_pattern, c
 
 snopt_options = Dict("Major iterations limit" => 600,
 # "Minor iterations limit" => 10,
-"Time Limit" => 45*3600, # 45 hours
+"Time Limit" => 69*3600, # 69 hours (3 hour buffer from slurm limit)
 "Derivative option" => 1, #Derivatives are known
-"Verify level" => 0, #Check the derivatives
+"Verify level" => -1, #Check the derivatives
+"Scale option" => 0, #0 don't scale, 1 scale linear constraints and variables, 2 scale everything. 
 "Major feasibility tolerance" => 9e-6,
 "Major optimality tolerance" => 5e-5, 
-"Print file" => "snopt-print"*filename*"_"*rootname*"_"*nowstr*".out",
-"Summary file" => "snopt-summary"*filename*"_"*rootname*"_"*nowstr*".out",
-"New basis file" => 17,
-"Save frequency" => 100)
+"Print file" => "snopt-print"*filename*"_"*rootname*"_perturb_$perturb_idx"*"_"*".out",
+"Summary file" => "snopt-summary"*filename*"_"*rootname*"_perturb_$perturb_idx"*"_"*".out")
 
 # options = Options(solver=IPOPT(), derivatives=derivative_option)
 options = Options(solver=SNOPT(options=snopt_options), derivatives=derivative_option)
 
-run_optimization = false
+run_optimization = true
 if run_optimization
     println("Starting $(splitpath(@__FILE__)[end]) optimization...")
     flush(stdout)
@@ -766,9 +765,7 @@ if run_optimization
     println("info: ", info)
 
 else
-
-    xopt = [0.004639483227113929, 0.005933254440389638, 0.03452180428033821, 2.180160186292858, 0.09763364541378818, 0.17612391962821178, 0.6212305085173769, 0.0, 0.000569435248393383, 0.0006317173554264929, 9.956409193967199e-5, 0.0001403018583133886, 6.6228733365260324e-6, 0.05687657912535405, 0.0061031954727681975, 0.0008534157723675139, 0.00011261541057711974, 6.689763998865057e-5, 0.005673999999999992, 0.000999318953196919, 0.011639541205320958, 0.002008334527756839, 1.2076337736613505e-5, 0.05673999999999996, 0.05674290380441979, 0.005675089451049552, 0.0009636514977382998, 7.756421564581263e-6, 0.0005693794324622878, 0.006296347477088405, 0.000982099669351496, 0.001378041061803274, 6.372943266452945e-7, 0.0, 0.0, 6.777695796028599e-21, 6.777695634469885e-20, 0.0, 0.0, -1.5812354499253308e-20, 0.0, 0.0018708794879829526, 0.06396286113628272, 0.11349653857454063, 0.1522232491762067, 0.18574154768241122, 0.21603678453013744, 0.02440603156894168, 0.27025950710422864, 0.2949395638633526, 0.318599952677618, 0.03413731256694071, 0.36354708293167126, 0.03841995966241092, 0.040459656906239226, 0.04244525195041182, 0.00871000231741218] #Optimal solution for unsteady fix. #Using new scaling.
-
+    xopt = [0.4651205911237532, 0.5775436523147818, 0.32828553967715285, 0.021466763443071853, 0.09350195616919597, 0.1693408336024107, 0.5944998820790519, 0.0, 0.0056739813319321665, 0.00644937180954058, 0.0102716537689427, 0.014257629236724668, 0.00652508538502962, 0.005688139964188984, 0.061212235399601744, 0.08651341318646076, 0.11476646633862035, 0.0062237605427874765, 0.005674, 0.09954084903561385, 0.01285377157048517, 0.2100037596074625, 0.1200357886177187, 0.0005674002571620446, 0.005674027680370433, 0.05675027614266712, 0.09810956473727252, 0.07844561326368246, 0.05693542036678655, 0.006313164268127356, 0.09965019274353461, 0.014141119246335862, 0.006003330873326401, 0.0, 0.0, 0.0, 0.0, 0.0, 2.8019301190203405e-21, 0.0, -1.1828532072194644e-22, 0.01630541121142068, 0.06225645448334745, 0.11265368819973096, 0.1518221984405436, 0.1856560160919358, 0.2162040233554313, 0.2444401499969176, 0.027081679313868203, 0.029564605252868338, 0.03194504025161199, 0.03423415116165135, 0.0036425098131472374, 0.0038536768092994464, 0.00040655203914800945, 0.00043746524732403576, 0.899504474082129] #Lagrangian scale optimization
 end
 
 
@@ -805,13 +802,25 @@ if run_analysis
     dg_opt3 = zeros(ng, nx)
     f_opt3 = fderiv(gopt3, df_opt3, dg_opt3, deepcopy(xopt))
 
-    println("   Running Finite difference derivatives...")
-    finderiv = uo.FiniteDeriv(objective, constraint, nx, ng, sparsity_pattern)
-    gopt4 = zeros(ng)
-    df_opt4 = zeros(nx)
-    dg_opt4 = zeros(ng, nx)
-    f_opt4 = finderiv(gopt4, df_opt4, dg_opt4, deepcopy(xopt))
+    # println("   Running Finite difference derivatives...")
+    # finderiv = uo.FiniteDeriv(objective, constraint, nx, ng, sparsity_pattern)
+    # gopt4 = zeros(ng)
+    # df_opt4 = zeros(nx)
+    # dg_opt4 = zeros(ng, nx)
+    # f_opt4 = finderiv(gopt4, df_opt4, dg_opt4, deepcopy(xopt))
 
+    dg_err = dg_opt3 - dg_opt4
+
+    function relative_error(a, b; tol=1e-6)
+        if isapprox(b, 0.0; atol=tol)
+            return abs(a - b) # If the true value is very close to zero, return absolute error
+        else
+            return abs(a - b) / abs(b) # Otherwise, return relative error
+        end
+    end
+    dg_errpercent = relative_error.(dg_opt3, dg_opt4)
+    max_err_percent, max_err_idx = findmax(dg_errpercent)
+    @show max_err_percent, max_err_idx, dg_opt3[max_err_idx], dg_opt4[max_err_idx]
 
     ### Get the scaling factors based on the Jacobian
     # Jscale = uo.scale_jacobian(dg_opt3; smax=15)
@@ -830,289 +839,5 @@ if run_analysis
 end
 
 
-
-############## Extract optimization results and plot
-plot_results = true #Runs the plots code (Rewrites some variables above)
-show_fig = false
-save_fig = false
-base_name = "_unsteady_extrachord_rotated_"
-if @isdefined(xopt) && plot_results
-    # pgfplotsx()
-    using Plots.Measures
-
-    my_color_palette=[
-        RGB(0.0, 46.0 / 255.0, 93.0 / 255.0), #BYU Blue
-        RGB(155.0 / 255.0, 0.0, 0.0), #"BYU" Red
-        RGB(128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0), #Middle Gray
-        RGB(162.0 / 255.0, 227.0 / 255.0, 162.0 / 255.0), #Light Green
-        RGB(243.0 / 255.0, 209.0 / 255.0, 243.0 / 255.0), #Pink
-        RGB(205.0 / 255.0, 179.0 / 255.0, 0.0), #Yellow
-        RGB(161.0 / 255.0, 161.0 / 255.0, 226.0 / 255.0), #Purple
-    ]
-    default(;
-        fontfamily="Palatino Roman",
-        color_palette=my_color_palette,
-        grid=false,
-        foreground_color_legend=nothing,
-        tickfontsize=7,
-        guidefontsize=7,
-        legendfontsize=6,
-    )
-    fit = (xx, yy) -> Akima(xx, yy, 1e-4)
-
-    using Colors
-    theme_colors = palette(:auto)
-    filename = splitpath(@__FILE__)[end]
-
-
-    chords0, twists0, fvec0, pitches_initial, tsr_initial  = get_designvars(x0, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, nwind, chord_scale, twist_scale, thick_scale, tsr_scale, pitch_scale, individual_scale)
-    chords_opt, twists_opt, fvec_opt, pitches_opt, tsr_opt  = get_designvars(xopt, rvec, cvec, twistvec, cp_idxs, twist_cp_idxs, f_cp_idxs, nx_cp, nx_cp_twist, nf_cp, nwind, chord_scale, twist_scale, thick_scale, tsr_scale, pitch_scale, individual_scale)
-
-    rsmooth = range(rvec[1], rvec[end], length=100)
-    rsmooth_webs = range(rvec[7], rvec[end], length=100)
-
-    xopt_plot = xopt .* individual_scale
-
-    r_cp = rvec[cp_idxs[1:end]] 
-    chord_idxs = 1:nx_cp
-    x_chord = xopt_plot[chord_idxs].*scaling.chord_scale
-    c_cp = vcat(cvec[cp_idxs[1]], x_chord) 
-    chords0fit = fit(rvec, cvec)
-    chords_optfit = fit(rvec, chords_opt)
-    chords0_smooth = chords0fit.(rsmooth)
-    chords_opt_smooth = chords_optfit.(rsmooth)
-
-
-    start_idx = chord_idxs[end]
-    twist_idxs = start_idx+1:start_idx+nx_cp_twist 
-    r_cp_twist = rvec[twist_cp_idxs[2:end]]
-    x_twist = xopt_plot[twist_idxs].*scaling.twist_scale
-    twists0fit = fit(rvec, twistvec)
-    twists_optfit = fit(rvec, twists_opt)
-    twists0_smooth = twists0fit.(rsmooth)
-    twists_opt_smooth = twists_optfit.(rsmooth)
-
-    start_idx = twist_idxs[end]
-    seg_idxs = start_idx+1:start_idx+nf_cp
-    f1_cp_opt = xopt_plot[seg_idxs].*thick_scale
-    r_f_cp = rvec[f_cp_idxs]
-
-    start_idx = seg_idxs[end]
-    seg_idxs = start_idx+1:start_idx+nf_cp
-    f2_cp_opt = xopt_plot[seg_idxs].*thick_scale
-
-    start_idx = seg_idxs[end]
-    seg_idxs = start_idx+1:start_idx+nf_cp
-    f3_cp_opt = xopt_plot[seg_idxs].*thick_scale
-
-    start_idx = seg_idxs[end]
-    seg_idxs = start_idx+1:start_idx+nf_cp
-    f4_cp_opt = xopt_plot[seg_idxs].*thick_scale
-
-    start_idx = seg_idxs[end]
-    seg_idxs = start_idx+1:start_idx+nf_cp
-    f5_cp_opt = xopt_plot[seg_idxs].*thick_scale
-
-    fmat0 = zeros(5, length(rvec))
-    fmat_opt = zeros(5, length(rvec))
-    for i = 1:5
-        fmat0[i, :] = fvec0[i:5:end]
-        fmat_opt[i, :] = fvec_opt[i:5:end]
-    end
-
-
-
-    seg_thickness0 = uo.get_seg_thickness(objective, chords0, twists0, fvec0) 
-    seg_thicknessopt = uo.get_seg_thickness(objective, chords_opt, twists_opt, fvec_opt) #Doesn't actually need the objective, just the parameters
-
-    maxomega = 12.0*2*pi/60
-    omega_initial = min.(Vcurve*tsr_initial/rotorR, maxomega)
-    omega_opt = min.(Vcurve*tsr_opt/rotorR, maxomega)
-
-
-
-
-    c1plt = plot(rsmooth, chords0_smooth, ylabel="Chord (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=true) #ylims=(0, 8),
-    plot!(c1plt, rsmooth, chords_opt_smooth, lab="Optimized", lw=2)
-    scatter!(c1plt, r_cp, c_cp, lab=false, seriescolor=2)
-    # show_fig ? display(c1plt) : nothing
-    # save_fig ? savefig(c1plt, filename*base_name*"chord_"*nowstr*".png") : nothing
-
-    # c2plt = plot(objective, cvec, aspect_ratio=:equal, legend=false, xaxis=false, yaxis=false, grid=false, fillcolor=1)
-    c2plt = plot(objective, chords_opt, aspect_ratio=:equal, legend=false, xaxis=false, yaxis=false, grid=false, fillcolor=2, xlims=xlims(c1plt), fillalpha=0.8)
-
-    # l = @layout [a{0.875h}; b{0.125h}]
-    # cplt = plot(c1plt, c2plt, layout=l, size=(800, 750))
-    # display(cplt)
-
-    twistplt = plot(rsmooth, twists0_smooth.*(180/pi), xlabel="Radius (m)", ylabel="Twist (deg)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
-    plot!(twistplt, rsmooth, twists_opt_smooth.*(180/pi), lab="Optimized", lw=2)
-    scatter!(twistplt, r_cp_twist, x_twist.*(180/pi), lab=false, seriescolor=2)
-    # show_fig ? display(twistplt) : nothing
-    # save_fig ? savefig(twistplt, filename*base_name*"twist_"*nowstr*".png") : nothing
-
-    pitchplt = plot(Vcurve, pitches_initial.*(180/pi), xlabel="Wind Speed (m/s)", ylabel="Pitch (deg)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
-    plot!(pitchplt, Vcurve, pitches_opt.*(180/pi), lab="Optimized", lw=2)
-    # show_fig ? display(pitchplt) : nothing
-    # save_fig ? savefig(pitchplt, filename*base_name*"pitch_"*nowstr*".png") : nothing
-    
-    omegaplt = plot(Vcurve, omega_initial, ylabel="Rotational Speed\n(rad/s)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, size=(800, 600), legend=false)
-    plot!(omegaplt, Vcurve, omega_opt, lab="Optimized", lw=2)
-
-    
-
-
-    scalingplt = plot(rvec, fmat_opt[1, :], xlabel="Radius (m)", ylabel="Optimized Scaling Factor", lab="Seg 1", lw=2, seriescolor=1, grid=false, foreground_color_legend=nothing, background_color_legend=nothing)
-    for i in 2:5
-        if i < 4
-            coloridx = i
-        else
-            coloridx = i + 2
-        end
-        plot!(scalingplt, rvec, fmat_opt[i, :], lab="Seg $i", lw=2, seriescolor=coloridx)
-    end
-    
-    scatter!(scalingplt, r_f_cp, f1_cp_opt, lab=false, seriescolor=1)
-    scatter!(scalingplt, r_f_cp, f2_cp_opt, lab=false, seriescolor=2)
-    scatter!(scalingplt, r_f_cp, f3_cp_opt, lab=false, seriescolor=3)
-    scatter!(scalingplt, r_f_cp, f4_cp_opt, lab=false, seriescolor=6)
-    scatter!(scalingplt, r_f_cp, f5_cp_opt, lab=false, seriescolor=7)
-
-    # show_fig ? display(scalingplt) : nothing
-    # save_fig ? savefig(scalingplt, filename*base_name*"scaling_"*nowstr*".png") : nothing
-
-    # thickplt = plot(rvec, seg_thicknessopt[:,1:5], xlabel="Radius (m)", ylabel="Segment Thickness (m)", lab=[L"S_1" L"S_2" L"S_3" L"S_4" L"S_5"], lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing)
-    # display(thickplt)
-
-    thick1plt = plot(rvec, seg_thickness0[:,1].*1e3, ylabel=L"S_1",  lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, bordercolor=my_color_palette[3], axiscolor=my_color_palette[3], fg_color_text=my_color_palette[3], bottom_margin=-3.25mm, legend=false)
-    plot!(thick1plt, rvec, seg_thicknessopt[:,1].*1e3, lab="Optimized", lw=2)
-    # display(thick1plt)
-
-    thick2plt = plot(rvec, seg_thickness0[:,2].*1e3, ylabel=L"S_2",  lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[4], axiscolor=my_color_palette[4], fg_color_text=my_color_palette[4], top_margin=-2.5mm, bottom_margin=-2.5mm)
-    plot!(thick2plt, rvec, seg_thicknessopt[:,2].*1e3, lab="Optimized", lw=2)
-    # display(thick2plt)
-
-    thick3plt = plot(rvec, seg_thickness0[:,3].*1e3, ylabel=L"S_3",  lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[5], axiscolor=my_color_palette[5], fg_color_text=my_color_palette[5], top_margin=-2.5mm, bottom_margin=-2.5mm)
-    plot!(thick3plt, rvec, seg_thicknessopt[:,3].*1e3, lab="Optimized", lw=2)
-    annotate!(thick3plt, -14.0, 30, text("Segment Thickness (mm)", :black, font(11, "Palatino Roman"), :center, rotation = 90))
-    # display(thick3plt)
-
-    thick4plt = plot(rvec, seg_thickness0[:,4].*1e3, ylabel=L"S_4",  lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[6], axiscolor=my_color_palette[6], fg_color_text=my_color_palette[6], top_margin=-2.5mm, bottom_margin=-2.5mm)
-    plot!(thick4plt, rvec, seg_thicknessopt[:,4].*1e3, lab="Optimized", lw=2)
-    # display(thick4plt)
-
-    thick5plt = plot(rvec, seg_thickness0[:,5].*1e3, xlabel="Radius (m)", ylabel=L"S_5",  lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[7], axiscolor=my_color_palette[7], fg_color_text=my_color_palette[7], top_margin=-2.5mm, ylims=(0, 80))
-    plot!(thick5plt, rvec, seg_thicknessopt[:,5].*1e3, lab="Optimized", lw=2)
-    # display(thick5plt)
-    # savefig(thick5plt, filename*base_name*"thickness_seg5_"*nowstr*".png")
-
-    thickplt = plot(thick1plt, thick2plt, thick3plt, thick4plt, thick5plt, layout=(5, 1), size=(800, 600), left_margin=10mm, bordercolor=:black, axiscolor=:black, fg_color_text=:black)
-    # display(thickplt)
-
-    pltidx = 22
-    crossplt = plot(objective, chords0, twists_opt, fvec_opt, pltidx, legend=false, xaxis=false, yaxis=false, grid=false)
-    annotate!(crossplt, -0.05, -0.65, text(L"S_1", :left, 10, :black))
-    annotate!(crossplt, 0.55, -0.65, text(L"S_2", :left, 10, :black))
-    annotate!(crossplt, 1.55, -0.65, text(L"S_3", :left, 10, :black))
-    annotate!(crossplt, 2.9, -0.65, text(L"S_4", :left, 10, :black))
-    annotate!(crossplt, 3.9, -0.65, text(L"S_5", :left, 10, :black))
-    display(crossplt)
-
-    l2 = @layout [a{0.875h}; b{0.125h}]
-    # layupplt = plot(scalingplt, crossplt, layout=l2, size=(800, 750))
-    layupplt = plot(thickplt, crossplt, layout=l2, size=(800, 750))
-
-    crossfig = plot(crossplt, aspect_ratio=:equal, size=(800,300))
-    # savefig(crossfig, filename*base_name*"cross_section_"*nowstr*".png")
-    ### scaling factor on top right
-    # lf = @layout [a{0.6h} b{0.6h}; c{0.4h} d{0.4h}]
-    # optplt = plot(cplt, layupplt, twistplt, pitchplt, layout=lf)
-    # display(optplt)
-    # savefig(optplt, filename*base_name*"optimization_results_"*nowstr*".png")
-
-
-
-    #### Scaling factors on bottom
-    leftplt = plot(c1plt, twistplt, layout=(2, 1), size=(800, 600))
-    rightplt = plot(omegaplt, pitchplt, layout=(2, 1), size=(800, 600), legend=false)
-
-    l3 = @layout [a{0.875h}; b{0.125h}]
-    topleftplt = plot(leftplt, c2plt, layout=l3, size=(800, 750))
-    toprightplt = plot(rightplt, crossplt, layout=l3, size=(800, 750))
-
-
-    cylidxs = 1:14
-    cyl1plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,1].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, bottom_margin=-2.0mm, legend=false, yticks=myticks(3, seg_thickness0[cylidxs,1].*1e3, seg_thicknessopt[cylidxs,1].*1e3))
-    plot!(cyl1plt, rvec[cylidxs], seg_thicknessopt[cylidxs,1].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl1plt, -0.1, 32, text(L"S_1", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(cyl1plt)
-
-    cyl2plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,2].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[4], axiscolor=my_color_palette[4], fg_color_text=my_color_palette[4], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,2].*1e3, seg_thicknessopt[cylidxs,2].*1e3))
-    plot!(cyl2plt, rvec[cylidxs], seg_thicknessopt[cylidxs,2].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl2plt, -0.1, 33, text(L"S_2", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(cyl2plt)
-
-    cyl3plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,3].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[5], axiscolor=my_color_palette[5], fg_color_text=my_color_palette[5], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,3].*1e3, seg_thicknessopt[cylidxs,3].*1e3))
-    plot!(cyl3plt, rvec[cylidxs], seg_thicknessopt[cylidxs,3].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl3plt, -0.1, 42, text(L"S_3", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    annotate!(cyl3plt, -1.6, 30, text("Cylinder", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    annotate!(cyl3plt, -0.9, 30, text("Segment Thickness (mm)", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(cyl3plt)
-
-    cyl4plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,4].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[6], axiscolor=my_color_palette[6], fg_color_text=my_color_palette[6], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,4].*1e3, seg_thicknessopt[cylidxs,4].*1e3))
-    plot!(cyl4plt, rvec[cylidxs], seg_thicknessopt[cylidxs,4].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl4plt, -0.1, 64, text(L"S_4", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(cyl4plt)
-
-    cyl5plt = plot(rvec[cylidxs], seg_thickness0[cylidxs,5].*1e3, xlabel="Radius (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, bordercolor=my_color_palette[7], axiscolor=my_color_palette[7], fg_color_text=my_color_palette[7], top_margin=-2.5mm, yticks=myticks(3, seg_thickness0[cylidxs,5].*1e3, seg_thicknessopt[cylidxs,5].*1e3))
-    plot!(cyl5plt, rvec[cylidxs], seg_thicknessopt[cylidxs,5].*1e3, lab="Optimized", lw=2)
-    annotate!(cyl5plt, -0.1, 58, text(L"S_5", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(cyl5plt)
-    # savefig(cyl5plt, filename*base_name*"thickness_seg5_"*nowstr*".png")
-
-    cylplt = plot(cyl1plt, cyl2plt, cyl3plt, cyl4plt, cyl5plt, layout=(5, 1), size=(800, 600), left_margin=16mm, bordercolor=:black, axiscolor=:black, fg_color_text=:black)
-    # display(cylplt)
-
-
-    bladeidxs = 15:nr
-    blade1plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,1].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, bottom_margin=-2.0mm, legend=false, yticks=myticks(3, seg_thickness0[bladeidxs,1].*1e3, seg_thicknessopt[bladeidxs,1].*1e3), ylims=(2.85, 8.5))
-    plot!(blade1plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,1].*1e3, lab="Optimized", lw=2)
-    annotate!(blade1plt, 5, 6, text(L"S_1", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(blade1plt)
-
-    blade2plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,2].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,2].*1e3, seg_thicknessopt[bladeidxs,2].*1e3), ylims=(5, 30.670875651062577))
-    plot!(blade2plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,2].*1e3, lab="Optimized", lw=2)
-    annotate!(blade2plt, 5, 17, text(L"S_2", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(blade2plt)
-
-    blade3plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,3].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,3].*1e3, seg_thicknessopt[bladeidxs,3].*1e3))
-    plot!(blade3plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,3].*1e3, lab="Optimized", lw=2)
-    annotate!(blade3plt, 5, 37, text(L"S_3", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    annotate!(blade3plt, 1, 30, text("Segment Thickness (mm)", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    annotate!(blade3plt, -2.5, 30, text("Airfoil", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(blade3plt)
-
-    blade4plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,4].*1e3, lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, fg_color_text=my_color_palette[6], top_margin=-2.5mm, bottom_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,4].*1e3, seg_thicknessopt[bladeidxs,4].*1e3))
-    plot!(blade4plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,4].*1e3, lab="Optimized", lw=2)
-    annotate!(blade4plt, 5, 53, text(L"S_4", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(blade4plt)
-
-    blade5plt = plot(rvec[bladeidxs], seg_thickness0[bladeidxs,5].*1e3, xlabel="Radius (m)", lab="Original", lw=2, grid=false, foreground_color_legend=nothing, background_color_legend=nothing, legend=false, fg_color_text=my_color_palette[7], top_margin=-2.5mm, yticks=myticks(3, seg_thickness0[bladeidxs,5].*1e3, seg_thicknessopt[bladeidxs,5].*1e3), ylims=(2.8, 9.5))
-    plot!(blade5plt, rvec[bladeidxs], seg_thicknessopt[bladeidxs,5].*1e3, lab="Optimized", lw=2)
-    annotate!(blade5plt, 5, 6, text(L"S_5", :black, font(7, "Palatino Roman"), :center, rotation = 90))
-    # display(blade5plt)
-    # savefig(blade5plt, filename*base_name*"thickness_seg5_"*nowstr*".png")
-
-    bladeplt = plot(blade1plt, blade2plt, blade3plt, blade4plt, blade5plt, layout=(5, 1), size=(800, 600), left_margin=10mm, bordercolor=:black, axiscolor=:black, fg_color_text=:black)
-    # display(bladeplt)
-
-
-    lf = @layout [a{0.6h} b{0.6h}; c{0.4h} d{0.4h}]
-    optplt = plot(topleftplt, toprightplt, cylplt, bladeplt, layout=lf)
-    display(optplt)
-    # savefig(optplt, filename*base_name*"optimization_results_focusthicknesses_"*nowstr*".png")
-    # savefig(optplt, filename*base_name*"optimization_results_focusthicknesses_"*nowstr*".pdf")
-    nothing
-end
 
 nothing

@@ -25,3 +25,4 @@ figures/*
 *turbuni.dat
 *.xlsx
 *.sum.yaml
+*deflections.csv
