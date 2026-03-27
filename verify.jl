@@ -1,7 +1,9 @@
+#=
+Run WATT.jl to compare against OpenFAST for a simplified NREL 5MW
+wind turbine with turbulent in flow. 
 
-
-
-
+Adam Cardoza
+=#
 using OpenFASTTools, DelimitedFiles, GXBeam, WATT, LinearAlgebra, DynamicStallModels
 using StaticArrays, StructArrays, Statistics
 using Plots, Plots.Measures, LaTeXStrings

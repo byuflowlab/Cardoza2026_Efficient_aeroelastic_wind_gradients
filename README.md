@@ -14,5 +14,7 @@ The scripts provided here are:
 - Ndesignvars.jl - A comparison of the different forward differentiation techniques while varying the number of dense columns (chord and twist). 
 - Nwind.jl - A comparison of the different forward differentiation techniques while varying the number of sparse columns (number of wind speeds). 
 - *_reverse.jl - timing the reverse mode approach for Ndesignvars and Nwind. 
+- random_start.jl - Run an optimization from a randomly perturbed design from the initial (designed to be run in a slurm job array). 
+- parse_random_start_optimizations.jl - From a set of files labeled "perturbation_x.log" (The outputs of a random start optimization piped to a log file) analyze converged and failed designs. 
 
-In order to run the bottom four scripts, a module is provided in this repository that contains functions for differentiation and objective/constraint function analysis. If instantiating the environment above doesn't make the code accessible, simply `add ./UnsteadyOpt` in the Julia package manager when the local environment is active. Note that the optimization script requires a license for SNOPT. 
+In order to run the all of the scripts, a module is provided in this repository that contains functions for differentiation and objective/constraint function analysis. If instantiating the environment above doesn't make the code accessible, simply `add ./UnsteadyOpt` in the Julia package manager when the local environment is active. Note that the optimization scripts require a license for SNOPT, but using SNOW you can use IPOPT (but you won't get the same results). 
